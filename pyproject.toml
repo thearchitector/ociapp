@@ -1,23 +1,36 @@
 [project]
-name = "ociapp"
+name = "ociapp-workspace"
 version = "0.1.0"
-description = "Add your description here"
+description = "Workspace for OCIApp packages"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "ociapp",
+    "ociapp-build",
+    "ociapp-runtime",
+]
 
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
+    "msgpack>=1.1.1",
+    "pydantic>=2.11.9",
     "prek>=0.3.3",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
 ]
 
-# [tool.pytest.ini_options]
-# testpaths = ["tests"]
-# addopts = '-ra -vv --cov=src/ociapp-service --cov-branch --cov-report=term-missing'
-# asyncio_default_fixture_loop_scope = "session"
-# asyncio_default_test_loop_scope = "session"
-# asyncio_mode = "auto"
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/ociapp/tests/python",
+    "packages/ociapp-build/tests/python",
+    "packages/ociapp-runtime/tests/python",
+]
+addopts = "-ra -vv --import-mode=importlib --cov=ociapp --cov=ociapp_build --cov=ociapp_runtime --cov-branch --cov-report=term-missing"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 branch = true
@@ -27,9 +40,16 @@ exclude_also = ["if TYPE_CHECKING:"]
 
 [tool.mypy]
 strict = true
+explicit_package_bases = true
+mypy_path = [
+    "packages/ociapp/src",
+    "packages/ociapp-build/src",
+    "packages/ociapp-runtime/src",
+]
 
-[tool.ruff]
-extend-include = ["*.md"]
+[[tool.mypy.overrides]]
+module = ["msgpack"]
+ignore_missing_imports = true
 
 [tool.ruff.lint]
 extend-select = ["B", "I", "ASYNC", "TC", "SIM", "PL"]
@@ -52,3 +72,8 @@ split-on-trailing-comma = false
 
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.uv.sources]
+ociapp = { workspace = true }
+ociapp-build = { workspace = true }
+ociapp-runtime = { workspace = true }

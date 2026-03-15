@@ -1,3 +1,4 @@
+<!-- pragma: no ai -->
 # OCIApp Architecture
 
 This document outlines the initial architecture for a locally hosted, OCI-image-based application execution system. It is intended as a durable reference for future work.
@@ -25,7 +26,7 @@ The system is divided into three packages:
 At a high level:
 
 - application authors write code against `ociapp`, defining a single `execute` handler,
-- application projects use `ociapp-build` as their build backend to produce OCI image artifacts,
+- application projects use `ociapp-build` to produce OCI image artifacts,
 - a host service uses `ociapp-runtime` to start containers, talk to them over UDS, and reclaim them when idle.
 
 Conceptually:
@@ -77,8 +78,7 @@ A likely shape:
 ```python
 class CustomApplication[RequestT, ResponseT](Application):
     @override
-    async def execute(self, request: RequestT) -> ResponseT:
-        ...
+    async def execute(self, request: RequestT) -> ResponseT: ...
 ```
 
 ### Wire protocol
@@ -90,20 +90,13 @@ Request/response bodies should be msgpack maps.
 Recommended request shape:
 
 ```python
-{
-  "request_id": UUID,
-  "payload": bytes
-}
+{"request_id": UUID, "payload": bytes}
 ```
 
 Recommended response shape:
 
 ```python
-{
-  "request_id": UUID,
-  "payload": bytes | None,
-  "error": bytes | None
-}
+{"request_id": UUID, "payload": bytes | None, "error": bytes | None}
 ```
 
 This keeps transport stable while allowing internal payload schemas to evolve.
@@ -120,27 +113,24 @@ This convention allows `ociapp-runtime` to treat containers uniformly.
 
 ### Purpose
 
-`ociapp-build` is the build backend used by application/container projects. It packages a Python project into an OCI image file artifact.
+`ociapp-build` is the build tool. It packages a Python project into an OCI image file artifact.
 
 This package exists so application projects can declare how they should be built without manually re-implementing container packaging logic.
 
 ### Primary responsibilities
 
-- act as a Python build backend,
+- is a standlaone tool and does not interfere with the declared build backend,
 - read project configuration from `pyproject.toml`,
 - generate or coordinate an OCI image build,
 - package the application code together with `ociapp`,
-- produce a physical OCI image artifact suitable for storage and later execution.
+- produce a physical OCI image artifact suitable for storage and later execution,
+- expose building via CLI: `ociapp-build /path/to/project/root`
 
 ### Configuration model
 
 A likely `pyproject.toml` shape:
 
 ```toml
-[build-system]
-requires = ["ociapp-build"]
-build-backend = "ociapp_build"
-
 [tool.ociapp-build]
 mode = "managed"  # or "custom"
 system-packages = ["foo", "bar"]
@@ -165,7 +155,7 @@ Behavior:
 
 - uses a built-in Containerfile,
 - injects requested system packages into Containerfile as build args,
-- copies application code,
+- does not include source code in the image, only a pre-built wheel to install,
 - uses `tini` as the container ENTRYPOINT
 - uses `ociapp serve` as the CMD, with the specified entrypoint argument.
 

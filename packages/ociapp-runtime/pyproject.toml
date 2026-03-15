@@ -1,16 +1,12 @@
 [project]
-name = "ociapp"
+name = "ociapp-runtime"
 version = "0.1.0"
-description = "Sandbox-side OCIApp SDK and UDS server"
+description = "Host-side OCIApp runtime"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "msgpack>=1.1.1",
-    "pydantic>=2.11.9",
+    "ociapp",
 ]
-
-[project.scripts]
-ociapp = "ociapp.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]

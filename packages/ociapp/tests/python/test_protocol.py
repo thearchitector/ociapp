@@ -1,0 +1,91 @@
+from uuid import uuid4
+
+import msgpack
+import pytest
+from ociapp.protocol import (
+    ErrorPayload,
+    ProtocolError,
+    RequestEnvelope,
+    ResponseEnvelope,
+    decode_error_payload,
+    decode_request_envelope,
+    decode_response_envelope,
+    encode_error_payload,
+    encode_request_envelope,
+    encode_response_envelope,
+    pack_frame,
+    read_frame,
+)
+
+
+@pytest.mark.asyncio
+async def test_read_frame_round_trip() -> None:
+    reader = pytest.importorskip("asyncio").StreamReader()
+    frame = pack_frame(b"payload")
+    reader.feed_data(frame)
+    reader.feed_eof()
+
+    assert await read_frame(reader) == b"payload"
+    assert await read_frame(reader) is None
+
+
+@pytest.mark.asyncio
+async def test_read_frame_rejects_truncated_body() -> None:
+    reader = pytest.importorskip("asyncio").StreamReader()
+    reader.feed_data((5).to_bytes(4, "big") + b"abc")
+    reader.feed_eof()
+
+    with pytest.raises(ProtocolError, match="frame body"):
+        await read_frame(reader)
+
+
+def test_request_envelope_round_trip() -> None:
+    request_id = uuid4()
+    encoded = encode_request_envelope(
+        RequestEnvelope(request_id=request_id, payload=b"abc")
+    )
+
+    decoded = decode_request_envelope(encoded)
+
+    assert decoded == RequestEnvelope(request_id=request_id, payload=b"abc")
+
+
+def test_response_envelope_round_trip() -> None:
+    request_id = uuid4()
+    encoded = encode_response_envelope(
+        ResponseEnvelope(request_id=request_id, payload=b"abc", error=None)
+    )
+
+    decoded = decode_response_envelope(encoded)
+
+    assert decoded == ResponseEnvelope(
+        request_id=request_id, payload=b"abc", error=None
+    )
+
+
+def test_response_envelope_rejects_missing_payload_and_error() -> None:
+    with pytest.raises(ProtocolError, match="exactly one"):
+        ResponseEnvelope(request_id=uuid4(), payload=None, error=None)
+
+
+def test_error_payload_round_trip() -> None:
+    encoded = encode_error_payload(
+        ErrorPayload(
+            error_type="BoomError", message="bad request", details={"retryable": False}
+        )
+    )
+
+    decoded = decode_error_payload(encoded)
+
+    assert decoded == ErrorPayload(
+        error_type="BoomError", message="bad request", details={"retryable": False}
+    )
+
+
+def test_decode_request_envelope_rejects_invalid_request_id() -> None:
+    with pytest.raises(ProtocolError, match="valid UUID"):
+        decode_request_envelope(
+            msgpack.packb(
+                {"request_id": "not-a-uuid", "payload": b"abc"}, use_bin_type=True
+            )
+        )
