@@ -1,0 +1,52 @@
+[project]
+name = "ociapp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Elias Gabriel", email = "oss@eliasfgabriel.com" }
+]
+requires-python = ">=3.14"
+dependencies = [ ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = '-ra -vv --cov=src/ociapp --cov-branch --cov-report=term-missing'
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:"]
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+extend-include = ["*.md"]
+
+[tool.ruff.lint]
+extend-select = ["B", "I", "ASYNC", "TC", "SIM", "PL"]
+extend-ignore = ["UP037"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["TC", "F811", "PLR2004"]
+
+[tool.ruff.lint.flake8-type-checking]
+strict = true
+quote-annotations = true
+
+[tool.ruff.format]
+docstring-code-format = true
+skip-magic-trailing-comma = true
+preview = true
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
