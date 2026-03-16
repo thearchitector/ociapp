@@ -9,9 +9,6 @@ from .server import serve_application
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pydantic import BaseModel
-
-    from .application import Application
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,28 +22,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def serve_application_spec(
-    app: "Application[BaseModel, BaseModel]", *, socket_path: Path
-) -> None:
-    """Serves a loaded application."""
-
-    await serve_application(app, socket_path=socket_path)
-
-
-async def serve_from_import_path(import_path: str, socket_path: Path) -> None:
-    """Loads and serves an application from an import path."""
-
-    app = load_application(import_path)
-    await serve_application_spec(app, socket_path=socket_path)
-
-
 def main(argv: "Sequence[str] | None" = None) -> int:
     """Runs the OCIApp CLI."""
 
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "serve":
-        asyncio.run(serve_from_import_path(args.app, Path(args.socket_path)))
+        app = load_application(args.app)
+        asyncio.run(serve_application(app, socket_path=Path(args.socket_path)))
         return 0
 
     parser.error(f"unsupported command: {args.command}")

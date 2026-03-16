@@ -39,8 +39,8 @@ def load_application(import_path: str) -> Application["BaseModel", "BaseModel"]:
         )
 
     try:
-        value.request_model
-        value.response_model
+        _ = value.request_model
+        _ = value.response_model
     except TypeError as exc:
         raise ApplicationLoadError(str(exc)) from exc
 

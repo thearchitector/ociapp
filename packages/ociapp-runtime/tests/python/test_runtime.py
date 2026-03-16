@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import ociapp_runtime.runtime as runtime_module
 import pytest
 from ociapp import ErrorPayload
+from ociapp_runtime import DockerAdapter
 from ociapp_runtime.errors import (
     InstanceStartupError,
     OCIAppRuntimeError,
@@ -43,6 +44,12 @@ class FakeEngine:
     @staticmethod
     def build_container_name(artifact_path: "Path") -> str:
         return f"worker-{artifact_path.stem}"
+
+
+def test_runtime_defaults_to_docker_adapter(tmp_path: "Path") -> None:
+    runtime = Runtime(runtime_root=tmp_path)
+
+    assert isinstance(runtime._engine, DockerAdapter)
 
 
 @pytest.mark.asyncio

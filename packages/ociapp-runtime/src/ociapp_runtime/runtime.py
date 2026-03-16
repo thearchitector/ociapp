@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from tempfile import gettempdir
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from ociapp import DEFAULT_SOCKET_PATH
 
 from .client import execute_request
-from .engine import PodmanAdapter
+from .engine import DockerAdapter
 from .errors import (
     ArtifactLoadError,
     InstanceStartupError,
@@ -25,24 +25,7 @@ from .errors import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-class RuntimeEngine(Protocol):
-    """Defines the engine operations needed by the runtime."""
-
-    def load_archive(self, artifact_path: Path) -> str:
-        """Loads an OCI archive and returns an image reference."""
-
-    def run_container(
-        self, image_reference: str, mount_dir: Path, container_name: str
-    ) -> str:
-        """Starts a worker container and returns its container id."""
-
-    def stop_container(self, container_id: str, timeout_seconds: float) -> None:
-        """Stops a running worker container."""
-
-    @staticmethod
-    def build_container_name(artifact_path: Path) -> str:
-        """Builds a stable worker container name prefix."""
+    from .engine import EngineAdapter
 
 
 class InstanceState(StrEnum):
@@ -78,13 +61,13 @@ class ImagePool:
 
 
 class Runtime:
-    """Executes OCIApp artifacts through a warm pool of Podman workers."""
+    """Executes OCIApp artifacts through a warm pool of Docker workers."""
 
     def __init__(  # noqa: PLR0913
         self,
         *,
         runtime_root: Path | str | None = None,
-        engine: RuntimeEngine | None = None,
+        engine: "EngineAdapter | None" = None,
         startup_timeout: float = 10.0,
         request_timeout: float = 30.0,
         shutdown_timeout: float = 10.0,
@@ -97,7 +80,7 @@ class Runtime:
             if runtime_root is None
             else Path(runtime_root)
         ).resolve()
-        self._engine = engine or PodmanAdapter()
+        self._engine = engine or DockerAdapter()
         self._startup_timeout = startup_timeout
         self._request_timeout = request_timeout
         self._shutdown_timeout = shutdown_timeout
@@ -156,7 +139,7 @@ class Runtime:
         for instance in instances:
             await self._stop_instance(instance)
 
-        _prune_runtime_root(self._runtime_root)
+        shutil.rmtree(self._runtime_root, ignore_errors=True)
         self._started = False
 
     async def execute(
@@ -169,9 +152,7 @@ class Runtime:
                 "runtime must be started before executing requests"
             )
 
-        artifact_path = Path(image_path).resolve()
-        if not artifact_path.exists():
-            raise ArtifactLoadError(f"OCIApp artifact does not exist: {artifact_path}")
+        artifact_path = _resolve_artifact_path(image_path)
 
         instance = await self._acquire_instance(artifact_path)
         retire_instance = False
@@ -206,11 +187,10 @@ class Runtime:
                 ready_instance.last_used_at = self._clock()
                 return ready_instance
 
-            if pool.image_reference is None:
-                pool.image_reference = self._engine.load_archive(artifact_path)
-
             image_reference = pool.image_reference
-            assert image_reference is not None
+            if image_reference is None:
+                image_reference = self._engine.load_archive(artifact_path)
+                pool.image_reference = image_reference
             container_name = (
                 f"{self._engine.build_container_name(artifact_path)}-{uuid4().hex[:8]}"
             )
@@ -267,7 +247,7 @@ class Runtime:
 
     async def _stop_instance(self, instance: WorkerInstance) -> None:
         self._engine.stop_container(instance.container_id, self._shutdown_timeout)
-        _remove_directory_tree(instance.mount_dir)
+        shutil.rmtree(instance.mount_dir, ignore_errors=True)
 
     async def _wait_for_socket(self, socket_path: Path) -> None:
         deadline = self._clock() + self._startup_timeout
@@ -329,9 +309,9 @@ def _is_socket(path: Path) -> bool:
     return stat.S_ISSOCK(mode)
 
 
-def _prune_runtime_root(runtime_root: Path) -> None:
-    shutil.rmtree(runtime_root, ignore_errors=True)
+def _resolve_artifact_path(image_path: Path | str) -> Path:
+    artifact_path = Path(image_path).resolve()
+    if not artifact_path.exists():
+        raise ArtifactLoadError(f"OCIApp artifact does not exist: {artifact_path}")
 
-
-def _remove_directory_tree(root: Path) -> None:
-    shutil.rmtree(root, ignore_errors=True)
+    return artifact_path

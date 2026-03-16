@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 
 class OCIAppError(Exception):
@@ -29,9 +29,10 @@ class ServerLifecycleError(OCIAppError):
     """Raised when the server cannot manage its socket path."""
 
 
-@dataclass(frozen=True, slots=True)
-class ErrorPayload:
+class ErrorPayload(BaseModel):
     """Describes a structured application error payload."""
+
+    model_config = ConfigDict(frozen=True)
 
     error_type: str
     message: str

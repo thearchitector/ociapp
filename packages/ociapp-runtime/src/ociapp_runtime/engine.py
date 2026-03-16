@@ -8,7 +8,7 @@ from .runner import CommandRunner
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["EngineAdapter", "PodmanAdapter"]
+__all__ = ["DockerAdapter", "EngineAdapter"]
 
 
 class EngineAdapter(Protocol):
@@ -30,8 +30,8 @@ class EngineAdapter(Protocol):
         """Builds a stable container name prefix for an artifact."""
 
 
-class PodmanAdapter:
-    """Wraps Podman command construction for OCIApp runtime workers."""
+class DockerAdapter:
+    """Wraps Docker command construction for OCIApp runtime workers."""
 
     def __init__(
         self, runner: CommandRunner | None = None, command_timeout: float = 60.0
@@ -46,14 +46,14 @@ class PodmanAdapter:
             raise ArtifactLoadError(f"OCIApp artifact does not exist: {artifact_path}")
 
         result = self._runner.run(
-            ("podman", "load", "--input", str(artifact_path)),
+            ("docker", "load", "--input", str(artifact_path)),
             cwd=artifact_path.parent,
             timeout=self._command_timeout,
         )
         image_reference = _parse_loaded_image_reference(result.stdout, result.stderr)
         if image_reference is None:
             raise ArtifactLoadError(
-                "podman load did not report a loaded image reference"
+                "docker load did not report a loaded image reference"
             )
 
         return image_reference
@@ -67,7 +67,7 @@ class PodmanAdapter:
         mount_spec = f"type=bind,src={mount_dir},dst=/run/ociapp"
         result = self._runner.run(
             (
-                "podman",
+                "docker",
                 "run",
                 "--detach",
                 "--rm",
@@ -82,7 +82,7 @@ class PodmanAdapter:
         )
         container_id = result.stdout.strip()
         if not container_id:
-            raise InstanceStartupError("podman run did not return a container id")
+            raise InstanceStartupError("docker run did not return a container id")
 
         return container_id
 
@@ -92,7 +92,7 @@ class PodmanAdapter:
         stop_timeout = max(1, int(timeout_seconds))
         try:
             self._runner.run(
-                ("podman", "stop", "--time", str(stop_timeout), container_id),
+                ("docker", "stop", "--time", str(stop_timeout), container_id),
                 timeout=timeout_seconds + 1,
             )
         except Exception as exc:
@@ -102,7 +102,7 @@ class PodmanAdapter:
 
     @staticmethod
     def build_container_name(artifact_path: "Path") -> str:
-        """Builds a stable, safe Podman container name prefix."""
+        """Builds a stable, safe Docker container name prefix."""
 
         normalized_stem = re.sub(r"[^a-z0-9]+", "-", artifact_path.stem.lower()).strip(
             "-"

@@ -3,12 +3,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
-from .config import CustomBuildConfig, ManagedBuildConfig, load_build_project
+from .config import ManagedBuildConfig, load_build_project
 from .containerfile import render_managed_containerfile
 from .runner import CommandRunner
 
 if TYPE_CHECKING:
-    from .config import BuildProject
+    from .config import BuildProject, CustomBuildConfig
 
 
 class BuildArtifactError(Exception):
@@ -27,9 +27,11 @@ def build_project(
     artifact_path = resolve_artifact_path(build_project_config, output_dir=output_dir)
     image_tag = build_image_tag(build_project_config)
 
-    if isinstance(build_project_config.config, ManagedBuildConfig):
+    config = build_project_config.config
+    if isinstance(config, ManagedBuildConfig):
         _build_managed(
             build_project_config,
+            config,
             artifact_path=artifact_path,
             image_tag=image_tag,
             runner=command_runner,
@@ -37,6 +39,7 @@ def build_project(
     else:
         _build_custom(
             build_project_config,
+            config,
             artifact_path=artifact_path,
             image_tag=image_tag,
             runner=command_runner,
@@ -58,7 +61,7 @@ def resolve_artifact_path(
 
 
 def build_image_tag(build_project_config: "BuildProject") -> str:
-    """Builds a stable local Podman tag for a project."""
+    """Builds a stable local Docker tag for a project."""
 
     normalized_name = build_project_config.metadata.name.replace("_", "-").lower()
     normalized_version = build_project_config.metadata.version.replace("+", "-")
@@ -102,34 +105,13 @@ def prepare_managed_context(
     return containerfile_path
 
 
-def export_archive(
-    artifact_path: Path, image_tag: str, runner: CommandRunner, cwd: Path
-) -> None:
-    """Exports a built image to an OCI archive."""
-
-    runner.run(
-        (
-            "podman",
-            "save",
-            "--format",
-            "oci-archive",
-            "--output",
-            str(artifact_path),
-            image_tag,
-        ),
-        cwd=cwd,
-    )
-
-
 def _build_managed(
     build_project_config: "BuildProject",
+    config: ManagedBuildConfig,
     artifact_path: Path,
     image_tag: str,
     runner: CommandRunner,
 ) -> None:
-    config = build_project_config.config
-    assert isinstance(config, ManagedBuildConfig)
-
     with TemporaryDirectory(prefix="ociapp-build-") as temporary_directory:
         temp_root = Path(temporary_directory)
         wheel_path = build_wheel(
@@ -144,48 +126,53 @@ def _build_managed(
             context_dir=context_dir,
         )
         runner.run(
-            (
-                "podman",
-                "build",
-                "--tag",
-                image_tag,
-                "--file",
-                str(containerfile_path),
-                str(context_dir),
+            _buildx_command(
+                artifact_path=artifact_path,
+                image_tag=image_tag,
+                containerfile_path=containerfile_path,
+                context_dir=context_dir,
             ),
-            cwd=build_project_config.root,
-        )
-        export_archive(
-            artifact_path=artifact_path,
-            image_tag=image_tag,
-            runner=runner,
             cwd=build_project_config.root,
         )
 
 
 def _build_custom(
     build_project_config: "BuildProject",
+    config: CustomBuildConfig,
     artifact_path: Path,
     image_tag: str,
     runner: CommandRunner,
 ) -> None:
-    config = build_project_config.config
-    assert isinstance(config, CustomBuildConfig)
     runner.run(
-        (
-            "podman",
-            "build",
-            "--tag",
-            image_tag,
-            "--file",
-            str(config.containerfile),
-            str(build_project_config.root),
+        _buildx_command(
+            artifact_path=artifact_path,
+            image_tag=image_tag,
+            containerfile_path=config.containerfile,
+            context_dir=build_project_config.root,
         ),
         cwd=build_project_config.root,
     )
-    export_archive(
-        artifact_path=artifact_path,
-        image_tag=image_tag,
-        runner=runner,
-        cwd=build_project_config.root,
+
+
+def _buildx_command(
+    *, artifact_path: Path, image_tag: str, containerfile_path: Path, context_dir: Path
+) -> tuple[str, ...]:
+    return (
+        "docker",
+        "buildx",
+        "build",
+        "--tag",
+        image_tag,
+        "--file",
+        str(containerfile_path),
+        "--output",
+        _buildx_output(image_tag=image_tag, artifact_path=artifact_path),
+        str(context_dir),
+    )
+
+
+def _buildx_output(*, image_tag: str, artifact_path: Path) -> str:
+    return (
+        f"type=oci,name={image_tag},dest={artifact_path},tar=true,"
+        "compression=zstd,compression-level=22"
     )

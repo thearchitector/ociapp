@@ -7,7 +7,8 @@ contract.
 - `packages/ociapp`: sandbox-side SDK, direct `app = MyApplication()` contract,
   framing helpers, and UDS server
 - `packages/ociapp-build`: standalone CLI that builds `.ociapp` OCI archives
-- `packages/ociapp-runtime`: host-side runtime with Podman-backed warm workers
+  through Docker Buildx
+- `packages/ociapp-runtime`: host-side runtime with Docker-backed warm workers
 
 The repository also includes:
 

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ValidationError
 
-from .errors import ErrorPayload, PayloadCodecError, ProtocolError
+from .errors import ErrorPayload, PayloadCodecError, ProtocolError, ServerLifecycleError
 from .models import ResponseEnvelope
 from .payloads import decode_payload, encode_payload
 from .protocol import (
@@ -66,8 +66,10 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
         """Starts the server and blocks until it is cancelled."""
 
         async with self:
-            assert self._server is not None
-            await self._server.serve_forever()
+            server = self._server
+            if server is None:
+                raise ServerLifecycleError("server did not start successfully")
+            await server.serve_forever()
 
     async def close(self) -> None:
         """Stops the server and removes its socket file."""
@@ -111,13 +113,11 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
     async def _handle_request(self, frame_payload: bytes) -> bytes:
         envelope = decode_request_envelope(frame_payload)
         try:
-            request_payload = self._decode_request_payload(envelope)
             execute = cast(
-                "Callable[[dict[str, object]], Awaitable[ResponseT]]",
-                self._app.execute,
+                "Callable[[dict[str, object]], Awaitable[ResponseT]]", self._app.execute
             )
-            response_model = await execute(request_payload)
-            response_payload = self._encode_response_payload(response_model)
+            response_model = await execute(decode_payload(envelope.payload))
+            response_payload = encode_payload(response_model.model_dump(mode="python"))
             return encode_response_envelope(
                 ResponseEnvelope(
                     request_id=envelope.request_id, payload=response_payload, error=None
@@ -148,12 +148,6 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
                     details=None,
                 ),
             )
-
-    def _decode_request_payload(self, envelope: "RequestEnvelope") -> dict[str, object]:
-        return decode_payload(envelope.payload)
-
-    def _encode_response_payload(self, response: ResponseT) -> bytes:
-        return encode_payload(response.model_dump(mode="python"))
 
     def _encode_error_response(
         self, envelope: "RequestEnvelope", error: ErrorPayload

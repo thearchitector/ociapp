@@ -150,7 +150,7 @@ async def test_server_rejects_malformed_frame() -> None:
     reader.feed_eof()
     writer = FakeStreamWriter()
 
-    await server._handle_connection(reader, cast(asyncio.StreamWriter, writer))
+    await server._handle_connection(reader, cast("asyncio.StreamWriter", writer))
 
     assert writer.closed
     assert writer.buffer == b""

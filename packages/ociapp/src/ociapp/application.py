@@ -15,19 +15,20 @@ class Application[RequestT: BaseModel, ResponseT: BaseModel](ABC):
         if execute_method is None:
             return
 
-        setattr(cls, "execute", validate_call(validate_return=True)(execute_method))
+        validated_execute = validate_call(validate_return=True)(execute_method)
+        type.__setattr__(cls, "execute", validated_execute)
 
     @property
     def request_model(self) -> type[RequestT]:
         """Returns the Pydantic model used for request validation."""
 
-        return cast(type[RequestT], self._resolve_model("request"))
+        return cast("type[RequestT]", self._resolve_model("request"))
 
     @property
     def response_model(self) -> type[ResponseT]:
         """Returns the Pydantic model used for response validation."""
 
-        return cast(type[ResponseT], self._resolve_model("response"))
+        return cast("type[ResponseT]", self._resolve_model("response"))
 
     @cached_property
     def _execute_signature(self) -> Signature:

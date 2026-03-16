@@ -1,30 +1,51 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from uuid import UUID
 
-from .errors import ProtocolError
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 if TYPE_CHECKING:
-    from uuid import UUID
+    from typing import Self
 
 
-@dataclass(slots=True, frozen=True)
-class RequestEnvelope:
+class RequestEnvelope(BaseModel):
     """Represents a transport request envelope."""
 
-    request_id: "UUID"
+    model_config = ConfigDict(frozen=True)
+
+    request_id: UUID
     payload: bytes
 
+    @field_validator("payload", mode="before")
+    @classmethod
+    def _validate_payload_bytes(cls, value: object) -> object:
+        if not isinstance(value, bytes):
+            raise ValueError("payload must be bytes")
 
-@dataclass(slots=True, frozen=True)
-class ResponseEnvelope:
+        return value
+
+
+class ResponseEnvelope(BaseModel):
     """Represents a transport response envelope."""
 
-    request_id: "UUID"
-    payload: bytes | None
-    error: bytes | None
+    model_config = ConfigDict(frozen=True)
 
-    def __post_init__(self) -> None:
+    request_id: UUID
+    payload: bytes | None = None
+    error: bytes | None = None
+
+    @field_validator("payload", "error", mode="before")
+    @classmethod
+    def _validate_transport_bytes(cls, value: object) -> object:
+        if value is not None and not isinstance(value, bytes):
+            raise ValueError("payload and error must be bytes or null")
+
+        return value
+
+    @model_validator(mode="after")
+    def _validate_payload_or_error(self) -> "Self":
         if (self.payload is None) == (self.error is None):
-            raise ProtocolError(
+            raise ValueError(
                 "response envelopes must include exactly one of payload or error"
             )
+
+        return self

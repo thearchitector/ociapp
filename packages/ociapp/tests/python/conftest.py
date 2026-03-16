@@ -1,11 +1,6 @@
-from typing import TYPE_CHECKING
-
 import pytest
 from ociapp import Application
 from pydantic import BaseModel
-
-if TYPE_CHECKING:
-    from ociapp import Application
 
 
 class EchoRequest(BaseModel):
@@ -27,10 +22,10 @@ class FailingApplication(Application[EchoRequest, EchoResponse]):
 
 
 @pytest.fixture
-def echo_app() -> "Application[EchoRequest, EchoResponse]":
+def echo_app() -> Application[EchoRequest, EchoResponse]:
     return EchoApplication()
 
 
 @pytest.fixture
-def failing_app() -> "Application[EchoRequest, EchoResponse]":
+def failing_app() -> Application[EchoRequest, EchoResponse]:
     return FailingApplication()

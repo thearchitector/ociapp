@@ -52,15 +52,19 @@ def test_load_application_rejects_invalid_import_paths(
 def test_cli_loads_app_and_passes_socket_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: "Path"
 ) -> None:
-    module_path = _write_module(tmp_path)
-    monkeypatch.syspath_prepend(str(module_path.parent))
     captured: dict[str, object] = {}
+    app = object()
 
-    async def fake_serve(app: object, *, socket_path: "Path") -> None:
-        captured["app"] = app
+    def fake_load(import_path: str) -> object:
+        captured["import_path"] = import_path
+        return app
+
+    async def fake_serve(loaded_app: object, *, socket_path: "Path") -> None:
+        captured["app"] = loaded_app
         captured["socket_path"] = socket_path
 
-    monkeypatch.setattr("ociapp.cli.serve_application_spec", fake_serve)
+    monkeypatch.setattr("ociapp.cli.load_application", fake_load)
+    monkeypatch.setattr("ociapp.cli.serve_application", fake_serve)
     socket_path = tmp_path / "nested" / "app.sock"
 
     exit_code = main([
@@ -72,7 +76,8 @@ def test_cli_loads_app_and_passes_socket_path(
     ])
 
     assert exit_code == 0
-    assert isinstance(captured["app"], Application)
+    assert captured["import_path"] == "sample_app:app"
+    assert captured["app"] is app
     assert captured["socket_path"] == socket_path
 
 

@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,11 +28,14 @@ class ResponseProtocolError(OCIAppRuntimeError):
     """Raised when a worker returns malformed or mismatched transport data."""
 
 
-@dataclass(slots=True, frozen=True)
 class RemoteExecutionError(OCIAppRuntimeError):
     """Represents a structured application error returned by OCIApp."""
 
     error: "ErrorPayload"
+
+    def __init__(self, error: "ErrorPayload") -> None:
+        self.error = error
+        super().__init__(f"{error.error_type}: {error.message}")
 
     def __str__(self) -> str:
         return f"{self.error.error_type}: {self.error.message}"

@@ -25,7 +25,7 @@ def decode_payload(payload: bytes) -> dict[str, object]:
     if not all(isinstance(key, str) for key in unpacked):
         raise PayloadCodecError("payload keys must be strings")
 
-    return cast(dict[str, object], unpacked)
+    return cast("dict[str, object]", unpacked)
 
 
 def encode_payload(payload: dict[str, object]) -> bytes:
@@ -37,4 +37,4 @@ def encode_payload(payload: dict[str, object]) -> bytes:
         message = "payload is not msgpack serializable"
         raise PayloadCodecError(message) from exc
 
-    return cast(bytes, encoded)
+    return cast("bytes", encoded)

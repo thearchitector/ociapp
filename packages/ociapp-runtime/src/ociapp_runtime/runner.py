@@ -1,6 +1,5 @@
 import subprocess
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -11,8 +10,7 @@ class CommandExecutionError(Exception):
     """Raised when a runtime subprocess command fails."""
 
 
-@dataclass(slots=True, frozen=True)
-class CommandResult:
+class CommandResult(NamedTuple):
     """Captures the result of a subprocess command."""
 
     args: tuple[str, ...]

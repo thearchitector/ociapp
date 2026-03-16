@@ -1,4 +1,4 @@
-from .engine import EngineAdapter, PodmanAdapter
+from .engine import DockerAdapter, EngineAdapter
 from .errors import (
     ArtifactLoadError,
     InstanceShutdownError,
@@ -16,12 +16,12 @@ __all__ = [
     "CommandExecutionError",
     "CommandResult",
     "CommandRunner",
+    "DockerAdapter",
     "EngineAdapter",
     "InstanceShutdownError",
     "InstanceStartupError",
     "InstanceState",
     "OCIAppRuntimeError",
-    "PodmanAdapter",
     "RemoteExecutionError",
     "RequestTimeoutError",
     "ResponseProtocolError",

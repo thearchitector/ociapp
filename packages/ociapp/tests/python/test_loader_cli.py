@@ -68,12 +68,21 @@ def test_load_application_rejects_invalid_target() -> None:
 def test_cli_serve_loads_import_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: "Path"
 ) -> None:
-    captured: list[tuple[str, Path]] = []
+    captured: dict[str, object] = {}
+    app = EchoApplication()
 
-    async def fake_serve(import_path: str, socket_path: "Path") -> None:
-        captured.append((import_path, socket_path))
+    def fake_load(import_path: str) -> Application[EchoRequest, EchoResponse]:
+        captured["import_path"] = import_path
+        return app
 
-    monkeypatch.setattr("ociapp.cli.serve_from_import_path", fake_serve)
+    async def fake_serve(
+        loaded_app: Application[EchoRequest, EchoResponse], *, socket_path: "Path"
+    ) -> None:
+        captured["app"] = loaded_app
+        captured["socket_path"] = socket_path
+
+    monkeypatch.setattr("ociapp.cli.load_application", fake_load)
+    monkeypatch.setattr("ociapp.cli.serve_application", fake_serve)
 
     result = main([
         "serve",
@@ -84,4 +93,6 @@ def test_cli_serve_loads_import_path(
     ])
 
     assert result == 0
-    assert captured == [("sample_app:app", tmp_path / "app.sock")]
+    assert captured["import_path"] == "sample_app:app"
+    assert captured["app"] is app
+    assert captured["socket_path"] == tmp_path / "app.sock"

@@ -19,13 +19,13 @@ class DemoApplication(Application[DemoRequest, DemoResponse]):
         return DemoResponse(value=request.value)
 
 
+type ExecuteFn = Callable[[dict[str, object]], Awaitable[DemoResponse]]
+
+
 @pytest.mark.asyncio
 async def test_application_execute_validates_dict_input() -> None:
     app = DemoApplication()
-    execute = cast(
-        Callable[[dict[str, object]], Awaitable[DemoResponse]],
-        app.execute,
-    )
+    execute = cast("ExecuteFn", app.execute)
 
     result = await execute({"value": 7})
 
@@ -37,10 +37,7 @@ async def test_application_execute_validates_dict_input() -> None:
 @pytest.mark.asyncio
 async def test_application_execute_raises_validation_errors() -> None:
     app = DemoApplication()
-    execute = cast(
-        Callable[[dict[str, object]], Awaitable[DemoResponse]],
-        app.execute,
-    )
+    execute = cast("ExecuteFn", app.execute)
 
     with pytest.raises(ValidationError, match="value"):
         await execute({"value": "bad"})

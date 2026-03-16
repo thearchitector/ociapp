@@ -16,6 +16,7 @@ from ociapp.protocol import (
     pack_frame,
     read_frame,
 )
+from pydantic import ValidationError
 
 
 @pytest.mark.asyncio
@@ -63,9 +64,16 @@ def test_response_envelope_round_trip() -> None:
     )
 
 
-def test_response_envelope_rejects_missing_payload_and_error() -> None:
-    with pytest.raises(ProtocolError, match="exactly one"):
-        ResponseEnvelope(request_id=uuid4(), payload=None, error=None)
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [(None, None), (b"abc", b"boom")],
+    ids=["missing-both", "present-both"],
+)
+def test_response_envelope_validation_rejects_invalid_payload_error_combinations(
+    payload: bytes | None, error: bytes | None
+) -> None:
+    with pytest.raises(ValidationError, match="exactly one"):
+        ResponseEnvelope(request_id=uuid4(), payload=payload, error=error)
 
 
 def test_error_payload_round_trip() -> None:
@@ -87,5 +95,35 @@ def test_decode_request_envelope_rejects_invalid_request_id() -> None:
         decode_request_envelope(
             msgpack.packb(
                 {"request_id": "not-a-uuid", "payload": b"abc"}, use_bin_type=True
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload", "pattern"),
+    [
+        (msgpack.packb({"request_id": str(uuid4())}, use_bin_type=True), "exactly one"),
+        (
+            msgpack.packb(
+                {"request_id": str(uuid4()), "payload": "abc", "error": None},
+                use_bin_type=True,
+            ),
+            "bytes or null",
+        ),
+    ],
+    ids=["missing-both", "payload-string"],
+)
+def test_decode_response_envelope_maps_validation_failures_to_protocol_error(
+    payload: bytes, pattern: str
+) -> None:
+    with pytest.raises(ProtocolError, match=pattern):
+        decode_response_envelope(payload)
+
+
+def test_decode_error_payload_maps_validation_failures_to_protocol_error() -> None:
+    with pytest.raises(ProtocolError, match="message"):
+        decode_error_payload(
+            msgpack.packb(
+                {"error_type": "BoomError", "message": 123}, use_bin_type=True
             )
         )

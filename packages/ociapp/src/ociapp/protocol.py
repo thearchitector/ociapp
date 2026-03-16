@@ -1,8 +1,8 @@
 import asyncio
 from typing import cast
-from uuid import UUID
 
 import msgpack
+from pydantic import ValidationError
 
 from .errors import ErrorPayload, ProtocolError
 from .models import RequestEnvelope, ResponseEnvelope
@@ -71,69 +71,62 @@ async def read_frame(reader: asyncio.StreamReader) -> bytes | None:
 def encode_request_envelope(envelope: RequestEnvelope) -> bytes:
     """Serializes a request envelope to msgpack bytes."""
 
-    return _pack_envelope({
-        "request_id": str(envelope.request_id),
-        "payload": envelope.payload,
-    })
+    request_data = envelope.model_dump(mode="python")
+    request_data["request_id"] = str(envelope.request_id)
+    return _pack_map(request_data)
 
 
 def decode_request_envelope(payload: bytes) -> RequestEnvelope:
     """Deserializes msgpack bytes into a request envelope."""
 
-    envelope_data = _unpack_envelope(payload)
-    request_id = _decode_request_id(envelope_data.get("request_id"))
-    request_payload = _require_bytes(envelope_data.get("payload"), "payload")
-    return RequestEnvelope(request_id=request_id, payload=request_payload)
+    try:
+        return RequestEnvelope.model_validate(
+            _unpack_map(payload, label="envelope payload")
+        )
+    except ValidationError as exc:
+        raise _protocol_validation_error("request envelope", exc) from exc
 
 
 def encode_response_envelope(envelope: ResponseEnvelope) -> bytes:
     """Serializes a response envelope to msgpack bytes."""
 
-    return _pack_envelope({
-        "request_id": str(envelope.request_id),
-        "payload": envelope.payload,
-        "error": envelope.error,
-    })
+    response_data = envelope.model_dump(mode="python")
+    response_data["request_id"] = str(envelope.request_id)
+    return _pack_map(response_data)
 
 
 def decode_response_envelope(payload: bytes) -> ResponseEnvelope:
     """Deserializes msgpack bytes into a response envelope."""
 
-    envelope_data = _unpack_envelope(payload)
-    request_id = _decode_request_id(envelope_data.get("request_id"))
-    response_payload = envelope_data.get("payload")
-    error_payload = envelope_data.get("error")
-
-    if response_payload is not None and not isinstance(response_payload, bytes):
-        raise ProtocolError("response payload must be bytes or null")
-    if error_payload is not None and not isinstance(error_payload, bytes):
-        raise ProtocolError("response error must be bytes or null")
-
-    return ResponseEnvelope(
-        request_id=request_id, payload=response_payload, error=error_payload
-    )
+    try:
+        return ResponseEnvelope.model_validate(
+            _unpack_map(payload, label="envelope payload")
+        )
+    except ValidationError as exc:
+        raise _protocol_validation_error("response envelope", exc) from exc
 
 
 def encode_error_payload(error: ErrorPayload) -> bytes:
     """Serializes an OCIApp error payload."""
 
-    return cast(
-        bytes,
-        msgpack.packb(
-            {
-                "error_type": error.error_type,
-                "message": error.message,
-                "details": error.details,
-            },
-            use_bin_type=True,
-        ),
-    )
+    return _pack_map(error.model_dump(mode="python"))
 
 
 def decode_error_payload(payload: bytes) -> ErrorPayload:
     """Deserializes an OCIApp error payload."""
 
     try:
+        return ErrorPayload.model_validate(_unpack_map(payload, label="error payload"))
+    except ValidationError as exc:
+        raise _protocol_validation_error("error payload", exc) from exc
+
+
+def _pack_map(payload: dict[str, object]) -> bytes:
+    return cast("bytes", msgpack.packb(payload, use_bin_type=True))
+
+
+def _unpack_map(payload: bytes, *, label: str) -> dict[object, object]:
+    try:
         unpacked = msgpack.unpackb(payload, raw=False)
     except (
         ValueError,
@@ -142,55 +135,25 @@ def decode_error_payload(payload: bytes) -> ErrorPayload:
         msgpack.FormatError,
         msgpack.StackError,
     ) as exc:
-        raise ProtocolError("error payload must be valid msgpack") from exc
+        raise ProtocolError(f"{label} must be valid msgpack") from exc
     if not isinstance(unpacked, dict):
-        raise ProtocolError("error payload must be a msgpack map")
+        raise ProtocolError(f"{label} must be a msgpack map")
 
-    error_type = unpacked.get("error_type")
-    message = unpacked.get("message")
-    if not isinstance(error_type, str):
-        raise ProtocolError("error payload error_type must be a string")
-    if not isinstance(message, str):
-        raise ProtocolError("error payload message must be a string")
+    return cast("dict[object, object]", unpacked)
 
-    return ErrorPayload(
-        error_type=error_type, message=message, details=unpacked.get("details")
+
+def _protocol_validation_error(label: str, error: ValidationError) -> ProtocolError:
+    details = "; ".join(_format_validation_error(item) for item in error.errors())
+    return ProtocolError(f"{label} is invalid: {details}")
+
+
+def _format_validation_error(error: object) -> str:
+    error_details = cast("dict[str, object]", error)
+    location = ".".join(
+        str(part) for part in cast("tuple[object, ...]", error_details["loc"])
     )
+    message = cast("str", error_details["msg"])
+    if not location:
+        return message
 
-
-def _pack_envelope(envelope: dict[str, object]) -> bytes:
-    return cast(bytes, msgpack.packb(envelope, use_bin_type=True))
-
-
-def _unpack_envelope(payload: bytes) -> dict[object, object]:
-    try:
-        unpacked = msgpack.unpackb(payload, raw=False)
-    except (
-        ValueError,
-        TypeError,
-        msgpack.ExtraData,
-        msgpack.FormatError,
-        msgpack.StackError,
-    ) as exc:
-        raise ProtocolError("envelope payload must be valid msgpack") from exc
-    if not isinstance(unpacked, dict):
-        raise ProtocolError("envelope payload must be a msgpack map")
-
-    return cast(dict[object, object], unpacked)
-
-
-def _decode_request_id(value: object) -> UUID:
-    if not isinstance(value, str):
-        raise ProtocolError("request_id must be a UUID string")
-
-    try:
-        return UUID(value)
-    except ValueError as exc:
-        raise ProtocolError("request_id must be a valid UUID string") from exc
-
-
-def _require_bytes(value: object, field_name: str) -> bytes:
-    if not isinstance(value, bytes):
-        raise ProtocolError(f"{field_name} must be bytes")
-
-    return value
+    return f"{location}: {message}"

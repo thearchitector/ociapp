@@ -61,6 +61,7 @@ extend-ignore = ["UP037"]
 [tool.ruff.lint.flake8-type-checking]
 strict = true
 quote-annotations = true
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [tool.ruff.format]
 docstring-code-format = true
