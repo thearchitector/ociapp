@@ -90,28 +90,77 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        write_lock = asyncio.Lock()
+        request_tasks: set[asyncio.Task[None]] = set()
+        protocol_failed = False
+
         try:
             while True:
                 try:
                     frame = await read_frame(reader)
                 except ProtocolError:
+                    protocol_failed = True
                     break
                 if frame is None:
                     break
 
                 try:
-                    response_payload = await self._handle_request(frame)
+                    envelope = decode_request_envelope(frame)
                 except ProtocolError:
+                    protocol_failed = True
                     break
 
-                await write_frame(writer, response_payload)
+                request_task = asyncio.create_task(
+                    self._serve_request(envelope, writer, write_lock)
+                )
+                request_tasks.add(request_task)
+                request_task.add_done_callback(request_tasks.discard)
+        except asyncio.CancelledError:
+            await self._cancel_request_tasks(request_tasks)
+            raise
         finally:
-            writer.close()
+            if protocol_failed:
+                writer.close()
+                await self._cancel_request_tasks(request_tasks)
+            else:
+                await self._wait_for_request_tasks(request_tasks)
+                writer.close()
+
             with contextlib.suppress(ConnectionError):
                 await writer.wait_closed()
 
     async def _handle_request(self, frame_payload: bytes) -> bytes:
-        envelope = decode_request_envelope(frame_payload)
+        return await self._handle_request_envelope(
+            decode_request_envelope(frame_payload)
+        )
+
+    async def _serve_request(
+        self,
+        envelope: "RequestEnvelope",
+        writer: asyncio.StreamWriter,
+        write_lock: asyncio.Lock,
+    ) -> None:
+        response_payload = await self._handle_request_envelope(envelope)
+        async with write_lock:
+            await write_frame(writer, response_payload)
+
+    async def _wait_for_request_tasks(
+        self, request_tasks: set[asyncio.Task[None]]
+    ) -> None:
+        if not request_tasks:
+            return
+
+        await asyncio.gather(*tuple(request_tasks), return_exceptions=True)
+
+    async def _cancel_request_tasks(
+        self, request_tasks: set[asyncio.Task[None]]
+    ) -> None:
+        for request_task in tuple(request_tasks):
+            request_task.cancel()
+
+        await self._wait_for_request_tasks(request_tasks)
+
+    async def _handle_request_envelope(self, envelope: "RequestEnvelope") -> bytes:
         try:
             execute = cast(
                 "Callable[[dict[str, object]], Awaitable[ResponseT]]", self._app.execute

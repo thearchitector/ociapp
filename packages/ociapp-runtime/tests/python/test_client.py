@@ -1,19 +1,34 @@
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4  # noqa: TC003
 
+import msgpack
 import pytest
 from ociapp import (
     Application,
+    ErrorPayload,  # noqa: TC002
     OciAppServer,
+    RequestEnvelope,  # noqa: TC002
     ResponseEnvelope,
+    decode_payload,
     decode_request_envelope,
+    encode_error_payload,
+    encode_payload,
     encode_response_envelope,
     pack_frame,
 )
-from ociapp_runtime.client import execute_request
-from ociapp_runtime.errors import RemoteExecutionError, ResponseProtocolError
+from ociapp_runtime.client import (  # noqa: TC002
+    WorkerSession,
+    execute_request,
+    open_worker_session,
+)
+from ociapp_runtime.errors import (
+    RemoteExecutionError,
+    RequestTimeoutError,
+    ResponseProtocolError,
+)
 from pydantic import BaseModel
 
 
@@ -35,24 +50,11 @@ class FailingApplication(Application[EchoRequest, EchoResponse]):
         raise RuntimeError("boom")
 
 
-class FakeReader:
-    def __init__(self) -> None:
-        self._buffer = bytearray()
-
-    def feed_data(self, data: bytes) -> None:
-        self._buffer.extend(data)
-
-    async def readexactly(self, count: int) -> bytes:
-        if len(self._buffer) < count:
-            raise asyncio.IncompleteReadError(bytes(self._buffer), count)
-
-        data = bytes(self._buffer[:count])
-        del self._buffer[:count]
-        return data
+type Responder = Callable[[bytes], Awaitable[None]]
 
 
-class FakeWriter:
-    def __init__(self, reader: FakeReader, responder: "Responder") -> None:
+class FakeStreamWriter:
+    def __init__(self, reader: asyncio.StreamReader, responder: Responder) -> None:
         self._reader = reader
         self._responder = responder
         self._written = bytearray()
@@ -61,19 +63,71 @@ class FakeWriter:
         self._written.extend(data)
 
     async def drain(self) -> None:
-        response = await self._responder(bytes(self._written))
+        frame = bytes(self._written)
         self._written.clear()
-        self._reader.feed_data(response)
+        await self._responder(frame)
 
     def close(self) -> None:
-        return None
+        self._reader.feed_eof()
 
     async def wait_closed(self) -> None:
         return None
 
 
-type Responder = Callable[[bytes], Awaitable[bytes]]
-FRAME_HEADER_SIZE = 4
+class RecordingTransport:
+    def __init__(self) -> None:
+        self.reader = asyncio.StreamReader()
+        self.requests: list[RequestEnvelope] = []
+        self._request_condition = asyncio.Condition()
+        self.writer = FakeStreamWriter(self.reader, self._handle_write)
+
+    async def _handle_write(self, frame: bytes) -> None:
+        async with self._request_condition:
+            self.requests.append(decode_request_envelope(unpack_frame(frame)))
+            self._request_condition.notify_all()
+
+    async def wait_for_requests(self, count: int) -> None:
+        async with self._request_condition:
+            await self._request_condition.wait_for(lambda: len(self.requests) >= count)
+
+    def feed_success(self, request_id: UUID, payload: dict[str, object]) -> None:
+        self.feed_response(
+            encode_response_envelope(
+                ResponseEnvelope(
+                    request_id=request_id, payload=encode_payload(payload), error=None
+                )
+            )
+        )
+
+    def feed_error(self, request_id: UUID, error: ErrorPayload) -> None:
+        self.feed_response(
+            encode_response_envelope(
+                ResponseEnvelope(
+                    request_id=request_id,
+                    payload=None,
+                    error=encode_error_payload(error),
+                )
+            )
+        )
+
+    def feed_response(self, response_payload: bytes) -> None:
+        self.reader.feed_data(pack_frame(response_payload))
+
+    def feed_eof(self) -> None:
+        self.reader.feed_eof()
+
+    def request_id_for_value(self, value: str) -> UUID:
+        for request in self.requests:
+            payload = decode_payload(request.payload)
+            if payload["value"] == value:
+                return request.request_id
+
+        raise AssertionError(f"request for value {value!r} was not recorded")
+
+
+def feed_truncated_frame(transport: RecordingTransport) -> None:
+    transport.reader.feed_data((8).to_bytes(4, "big") + b"bad")
+    transport.feed_eof()
 
 
 @pytest.mark.asyncio
@@ -82,15 +136,18 @@ async def test_execute_request_round_trips_against_ociapp_handler(
 ) -> None:
     app: Application[EchoRequest, EchoResponse] = EchoApplication()
     server = OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
+    reader = asyncio.StreamReader()
 
-    async def responder(frame: bytes) -> bytes:
+    async def responder(frame: bytes) -> None:
         request_payload = unpack_frame(frame)
         response_payload = await server._handle_request(request_payload)
-        return pack_frame(response_payload)
+        reader.feed_data(pack_frame(response_payload))
 
-    reader, writer = make_fake_streams(responder)
+    writer = FakeStreamWriter(reader, responder)
 
-    async def fake_open_unix_connection(path: str) -> tuple[FakeReader, FakeWriter]:
+    async def fake_open_unix_connection(
+        path: str,
+    ) -> tuple[asyncio.StreamReader, FakeStreamWriter]:
         assert path == "/virtual/app.sock"
         return reader, writer
 
@@ -109,15 +166,18 @@ async def test_execute_request_surfaces_application_errors(
 ) -> None:
     app: Application[EchoRequest, EchoResponse] = FailingApplication()
     server = OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
+    reader = asyncio.StreamReader()
 
-    async def responder(frame: bytes) -> bytes:
+    async def responder(frame: bytes) -> None:
         request_payload = unpack_frame(frame)
         response_payload = await server._handle_request(request_payload)
-        return pack_frame(response_payload)
+        reader.feed_data(pack_frame(response_payload))
 
-    reader, writer = make_fake_streams(responder)
+    writer = FakeStreamWriter(reader, responder)
 
-    async def fake_open_unix_connection(path: str) -> tuple[FakeReader, FakeWriter]:
+    async def fake_open_unix_connection(
+        path: str,
+    ) -> tuple[asyncio.StreamReader, FakeStreamWriter]:
         assert path == "/virtual/app.sock"
         return reader, writer
 
@@ -133,41 +193,187 @@ async def test_execute_request_surfaces_application_errors(
 
 
 @pytest.mark.asyncio
-async def test_execute_request_rejects_mismatched_response_ids(
+async def test_worker_session_drops_unknown_response_ids_without_retiring_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def responder(frame: bytes) -> bytes:
-        request = decode_request_envelope(unpack_frame(frame))
-        response_payload = encode_response_envelope(
-            ResponseEnvelope(request_id=uuid4(), payload=request.payload, error=None)
+    transport = RecordingTransport()
+    session = await open_session(monkeypatch, transport)
+    reader_task = asyncio.create_task(session.read_responses())
+
+    try:
+        request_task = asyncio.create_task(
+            session.execute({"value": "hello"}, request_timeout=0.2)
         )
-        return pack_frame(response_payload)
+        await transport.wait_for_requests(1)
 
-    reader, writer = make_fake_streams(responder)
+        transport.feed_success(uuid4(), {"value": "ignored"})
+        transport.feed_success(
+            transport.request_id_for_value("hello"), {"value": "hello"}
+        )
 
-    async def fake_open_unix_connection(path: str) -> tuple[FakeReader, FakeWriter]:
+        assert await request_task == {"value": "hello"}
+        assert session.is_open
+    finally:
+        await close_session(session, reader_task)
+
+
+@pytest.mark.asyncio
+async def test_worker_session_times_out_one_request_without_affecting_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = RecordingTransport()
+    session = await open_session(monkeypatch, transport)
+    reader_task = asyncio.create_task(session.read_responses())
+
+    try:
+        slow_task = asyncio.create_task(
+            session.execute({"value": "slow"}, request_timeout=0.05)
+        )
+        fast_task = asyncio.create_task(
+            session.execute({"value": "fast"}, request_timeout=0.2)
+        )
+        await transport.wait_for_requests(2)
+
+        transport.feed_success(
+            transport.request_id_for_value("fast"), {"value": "fast"}
+        )
+
+        assert await fast_task == {"value": "fast"}
+        with pytest.raises(RequestTimeoutError):
+            await slow_task
+
+        transport.feed_success(
+            transport.request_id_for_value("slow"), {"value": "slow"}
+        )
+
+        third_task = asyncio.create_task(
+            session.execute({"value": "third"}, request_timeout=0.2)
+        )
+        await transport.wait_for_requests(3)
+        transport.feed_success(
+            transport.request_id_for_value("third"), {"value": "third"}
+        )
+
+        assert await third_task == {"value": "third"}
+        assert session.is_open
+    finally:
+        await close_session(session, reader_task)
+
+
+@pytest.mark.asyncio
+async def test_worker_session_invalid_inner_payload_fails_only_matching_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = RecordingTransport()
+    session = await open_session(monkeypatch, transport)
+    reader_task = asyncio.create_task(session.read_responses())
+
+    try:
+        broken_task = asyncio.create_task(
+            session.execute({"value": "broken"}, request_timeout=0.2)
+        )
+        ok_task = asyncio.create_task(
+            session.execute({"value": "ok"}, request_timeout=0.2)
+        )
+        await transport.wait_for_requests(2)
+
+        transport.feed_response(
+            encode_response_envelope(
+                ResponseEnvelope(
+                    request_id=transport.request_id_for_value("broken"),
+                    payload=msgpack.packb("bad", use_bin_type=True),
+                    error=None,
+                )
+            )
+        )
+        transport.feed_success(transport.request_id_for_value("ok"), {"value": "ok"})
+
+        with pytest.raises(ResponseProtocolError):
+            await broken_task
+        assert await ok_task == {"value": "ok"}
+        assert session.is_open
+    finally:
+        await close_session(session, reader_task)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("inject_failure", "message"),
+    [
+        pytest.param(
+            lambda transport: transport.feed_eof(),
+            "worker closed the connection before responding",
+            id="eof",
+        ),
+        pytest.param(
+            feed_truncated_frame,
+            "unexpected EOF while reading frame body",
+            id="truncated",
+        ),
+        pytest.param(
+            lambda transport: transport.feed_response(
+                msgpack.packb(["bad-envelope"], use_bin_type=True)
+            ),
+            "envelope payload must be a msgpack map",
+            id="bad-envelope",
+        ),
+    ],
+)
+async def test_worker_session_fatal_transport_failure_fails_all_pending_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    inject_failure: Callable[[RecordingTransport], None],
+    message: str,
+) -> None:
+    transport = RecordingTransport()
+    session = await open_session(monkeypatch, transport)
+    reader_task = asyncio.create_task(session.read_responses())
+
+    first_task = asyncio.create_task(
+        session.execute({"value": "first"}, request_timeout=1.0)
+    )
+    second_task = asyncio.create_task(
+        session.execute({"value": "second"}, request_timeout=1.0)
+    )
+    await transport.wait_for_requests(2)
+
+    inject_failure(transport)
+
+    with pytest.raises(ResponseProtocolError, match=message):
+        await reader_task
+    with pytest.raises(ResponseProtocolError, match=message):
+        await first_task
+    with pytest.raises(ResponseProtocolError, match=message):
+        await second_task
+    assert not session.is_open
+    assert session.fatal_error is not None
+
+
+async def open_session(
+    monkeypatch: pytest.MonkeyPatch, transport: RecordingTransport
+) -> WorkerSession:
+    async def fake_open_unix_connection(
+        path: str,
+    ) -> tuple[asyncio.StreamReader, FakeStreamWriter]:
         assert path == "/virtual/app.sock"
-        return reader, writer
+        return transport.reader, transport.writer
 
     monkeypatch.setattr(
         "ociapp_runtime.client.asyncio.open_unix_connection", fake_open_unix_connection
     )
-
-    with pytest.raises(ResponseProtocolError):
-        await execute_request(Path("/virtual/app.sock"), {"value": "hello"})
+    return await open_worker_session(Path("/virtual/app.sock"))
 
 
-def make_fake_streams(responder: Responder) -> tuple[FakeReader, FakeWriter]:
-    reader = FakeReader()
-    writer = FakeWriter(reader, responder)
-    return reader, writer
+async def close_session(
+    session: WorkerSession, reader_task: asyncio.Task[None]
+) -> None:
+    await session.close()
+    with contextlib.suppress(ResponseProtocolError):
+        await reader_task
 
 
 def unpack_frame(frame: bytes) -> bytes:
-    if len(frame) < FRAME_HEADER_SIZE:
-        raise AssertionError("frame was missing a header")
-    frame_length = int.from_bytes(frame[:FRAME_HEADER_SIZE], "big")
-    payload = frame[FRAME_HEADER_SIZE:]
+    frame_length = int.from_bytes(frame[:4], "big")
+    payload = frame[4:]
     if frame_length != len(payload):
         raise AssertionError("frame length did not match payload size")
     return payload
