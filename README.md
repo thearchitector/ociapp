@@ -107,3 +107,10 @@ sequenceDiagram
         RT->>C: stop container
     end
 ```
+
+## TODO
+
+1. Decouple `Runtime` ownership from `execute` so that the runtime can exist on a separate host
+    - a `LocalExecutor` for when the runtime exists on the same machine
+    - a `RemoteExecutor` for when the runtime is decoupled
+2. Refactor `Runtime` and `Engine` to support local on-machine docker, and a `K8Engine` to support a node-local `DaemonSet` that spins up K8 containers. 
