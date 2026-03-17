@@ -113,4 +113,7 @@ sequenceDiagram
 1. Decouple `Runtime` ownership from `execute` so that the runtime can exist on a separate host
     - a `LocalExecutor` for when the runtime exists on the same machine
     - a `RemoteExecutor` for when the runtime is decoupled
-2. Refactor `Runtime` and `Engine` to support local on-machine docker, and a `K8Engine` to support a node-local `DaemonSet` that spins up K8 containers. 
+2. Refactor `Runtime` and `Engine` to:
+   - support local on-machine docker via `LocalEngine`
+   - a `K8Engine` to support a node-local `DaemonSet` that spins up K8 containers.
+3. Remove dependency on Buildx in favor of [pure-python solution](https://github.com/spboyer/pycontainer-build), or figure out some other way to avoid external dependencies 
