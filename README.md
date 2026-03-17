@@ -75,7 +75,7 @@ OCIApp encompases 3 packages:
 - a warm pool of application containers, which it manages by spinning up new ones as needed and tearing down idle ones.
 - a UDS client for every active application container.
 
-## Request Flow
+### Request flow
 
 ```mermaid
 sequenceDiagram
