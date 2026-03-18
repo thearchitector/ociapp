@@ -52,7 +52,7 @@ containerfile = "Containerfile.custom"
 
 > Note: With a "custom" build, you're responsible for ensuring the container has proper user permissions, includes your application, and runs `ociapp serve --app` on boot.
 
-Then build it:
+Then package it into a distributable `.ociapp` archive:
 
 ```bash
 ociapp-build . --output-dir dist
@@ -78,6 +78,8 @@ async with (
     response = await runtime.execute(
         Path("dist/echo-app-0.1.0.ociapp"), {"value": "hello"}
     )
+    print(response)
+    # ==> {"value": "hello"}
 ```
 
 See `example/echo-app` and `example/runtime_demo.py` for more detail.
@@ -138,4 +140,4 @@ sequenceDiagram
     - a `RemoteExecutor` for when the runtime is decoupled
 2. Refactor `Runtime` and `Engine` to:
    - support local on-machine docker via `LocalEngine`
-   - a `K8Engine` to support a node-local `DaemonSet` that spins up K8 containers.
+   - a `K8Engine` to support a node-local resource that spins up K8 containers.
