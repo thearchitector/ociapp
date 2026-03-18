@@ -3,6 +3,7 @@ name = "ociapp-runtime"
 version = "0.1.0"
 description = "Host-side OCIApp runtime"
 readme = "README.md"
+license = "BSD-3-Clause-Clear"
 requires-python = ">=3.14"
 dependencies = [
     "ociapp @ git+https://github.com/thearchitector/ociapp.git@main#subdirectory=packages/ociapp",

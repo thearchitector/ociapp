@@ -1,3 +1,4 @@
+<!-- pragma: no ai -->
 # OCIApp
 
 OCIApp is a framework for building and running dependency-sandboxed Python applications using OCI artifacts.
@@ -38,8 +39,20 @@ Declare the build entrypoint in `pyproject.toml`:
 
 ```toml
 [tool.ociapp-build]
+mode = "managed"
 entrypoint = "echo_app.main:app"
+system-packages = ["vim"]
+
+# [advanced] or if you want to use a custom Containerfile (Dockerfile)
+
+[tool.ociapp-build]
+mode = "custom"
+containerfile = "Containerfile.custom"
 ```
+
+> Note: With a "custom" build, you're responsible for ensuring the container has proper user permissions, includes your application, and runs `ociapp serve --app` on boot.
+
+Then build it:
 
 ```bash
 ociapp-build . --output-dir dist
@@ -50,16 +63,16 @@ ociapp-build . --output-dir dist
 ```python
 from pathlib import Path
 
-from ociapp_runtime import Runtime
+from ociapp_runtime import Runtime, DockerAdapter
 
 async with (
     Runtime(
-        engine=None,
-        startup_timeout=10,  # max seconds to wait for a container to start before failing
-        request_timeout=30,  # max seconds for a execution request to complete
-        shutdown_timeout=10,  # max seconds to wait for a container to gracefully stop before killing it
-        idle_timeout=60,  # duration to keep an idle container running before stopping it
-        reaper_interval=1,  # how frequently to check for and reap idle containers
+        engine=DockerAdapter(),  # engine implementation (default DockerAdapter)
+        startup_timeout=10,  # max time to wait for a container to start before failing (default 10s)
+        request_timeout=30,  # max time for a execution request to complete (default 30s)
+        shutdown_timeout=10,  # max time to wait for a container to gracefully stop before killing it (default 10s)
+        idle_timeout=900,  # duration to keep an idle container running before stopping it (default 900s)
+        reaper_interval=1,  # how frequently to check for and reap idle containers (default 1s)
     ) as runtime
 ):
     response = await runtime.execute(
