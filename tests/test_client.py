@@ -19,6 +19,8 @@ from ociapp import (
     encode_response_envelope,
     pack_frame,
 )
+from pydantic import BaseModel
+
 from ociapp_runtime.client import (  # noqa: TC002
     WorkerSession,
     execute_request,
@@ -29,7 +31,6 @@ from ociapp_runtime.errors import (
     RequestTimeoutError,
     ResponseProtocolError,
 )
-from pydantic import BaseModel
 
 
 class EchoRequest(BaseModel):

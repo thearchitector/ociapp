@@ -5,6 +5,10 @@ if TYPE_CHECKING:
 
 
 BASE_IMAGE = "python:3.14-slim"
+OCIAPP_GIT_REQUIREMENT = (
+    "ociapp @ git+https://github.com/thearchitector/ociapp.git@main"
+    "#subdirectory=packages/ociapp"
+)
 
 
 def render_managed_containerfile(config: "ManagedBuildConfig", wheel_name: str) -> str:
@@ -26,7 +30,7 @@ def render_managed_containerfile(config: "ManagedBuildConfig", wheel_name: str) 
         f"FROM {BASE_IMAGE}",
         package_install,
         "COPY dist/ /tmp/dist/",
-        f"RUN python -m pip install --no-cache-dir /tmp/dist/{wheel_name} ociapp",
+        f'RUN python -m pip install --no-cache-dir /tmp/dist/{wheel_name} "{OCIAPP_GIT_REQUIREMENT}"',
         'ENTRYPOINT ["tini", "--"]',
         f'CMD ["ociapp", "serve", "--app", "{config.entrypoint}"]',
         "",

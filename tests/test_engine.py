@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
 
-import ociapp_runtime
 import pytest
+
+import ociapp_runtime
 from ociapp_runtime.engine import DockerAdapter
 from ociapp_runtime.errors import (
     ArtifactLoadError,

@@ -2,9 +2,10 @@ import asyncio
 from collections.abc import Callable  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 
-import ociapp_runtime.runtime as runtime_module
 import pytest
 from ociapp import ErrorPayload
+
+import ociapp_runtime.runtime as runtime_module
 from ociapp_runtime import DockerAdapter
 from ociapp_runtime.errors import (
     InstanceStartupError,

@@ -2,6 +2,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
+
 from ociapp_runtime.runner import CommandExecutionError, CommandRunner
 
 if TYPE_CHECKING:

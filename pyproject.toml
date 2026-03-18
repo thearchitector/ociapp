@@ -5,7 +5,7 @@ description = "Host-side OCIApp runtime"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "ociapp",
+    "ociapp @ git+https://github.com/thearchitector/ociapp.git@main#subdirectory=packages/ociapp",
 ]
 
 [dependency-groups]
