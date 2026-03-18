@@ -6,3 +6,7 @@ __pycache__
 .ruff_cache
 
 .uds-bind-test
+
+dist
+build
+*.egg-info

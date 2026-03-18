@@ -64,6 +64,8 @@ class DockerAdapter:
         """Starts a detached OCIApp worker container and returns its id."""
 
         mount_dir.mkdir(parents=True, exist_ok=True)
+        # Allow the fixed non-root container user to create the worker socket.
+        mount_dir.chmod(0o733)
         mount_spec = f"type=bind,src={mount_dir},dst=/run/ociapp"
         result = self._runner.run(
             (
@@ -92,7 +94,7 @@ class DockerAdapter:
         stop_timeout = max(1, int(timeout_seconds))
         try:
             self._runner.run(
-                ("docker", "stop", "--time", str(stop_timeout), container_id),
+                ("docker", "stop", "--timeout", str(stop_timeout), container_id),
                 timeout=timeout_seconds + 1,
             )
         except Exception as exc:

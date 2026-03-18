@@ -9,9 +9,12 @@ def test_render_managed_containerfile_includes_required_commands() -> None:
     )
 
     assert "tini git curl" in rendered
+    assert "groupadd --system ociapp" in rendered
+    assert "useradd --system --gid ociapp" in rendered
     assert "demo_app-1.2.3-py3-none-any.whl" in rendered
     assert (
         "ociapp @ git+https://github.com/thearchitector/ociapp.git@main"
         "#subdirectory=packages/ociapp"
     ) in rendered
+    assert "USER ociapp" in rendered
     assert 'CMD ["ociapp", "serve", "--app", "demo.main:app"]' in rendered

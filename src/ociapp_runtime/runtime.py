@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from tempfile import gettempdir
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -73,18 +73,17 @@ class Runtime:
         *,
         runtime_root: Path | str | None = None,
         engine: "EngineAdapter | None" = None,
-        startup_timeout: float = 10.0,
-        request_timeout: float = 30.0,
-        shutdown_timeout: float = 10.0,
-        idle_timeout: float = 60.0,
-        reaper_interval: float = 1.0,
+        startup_timeout: float = 10,
+        request_timeout: float = 30,
+        shutdown_timeout: float = 10,
+        idle_timeout: float = 900,
+        reaper_interval: float = 1,
         clock: "Callable[[], float] | None" = None,
     ) -> None:
-        self._runtime_root = (
-            Path(gettempdir()) / "ociapp-runtime"
-            if runtime_root is None
-            else Path(runtime_root)
-        ).resolve()
+        self._configured_runtime_root = (
+            None if runtime_root is None else Path(runtime_root).resolve()
+        )
+        self._runtime_root = self._configured_runtime_root
         self._engine = engine or DockerAdapter()
         self._startup_timeout = startup_timeout
         self._request_timeout = request_timeout
@@ -122,8 +121,14 @@ class Runtime:
         await stack.__aenter__()
 
         try:
-            self._runtime_root.mkdir(parents=True, exist_ok=True)
-            stack.callback(shutil.rmtree, self._runtime_root, ignore_errors=True)
+            runtime_root = self._configured_runtime_root
+            if runtime_root is None:
+                temporary_directory = TemporaryDirectory(prefix="ociapp-runtime-")
+                runtime_root = Path(temporary_directory.name)
+                stack.callback(temporary_directory.cleanup)
+            else:
+                runtime_root.mkdir(parents=True, exist_ok=True)
+                stack.callback(shutil.rmtree, runtime_root, ignore_errors=True)
 
             task_group = await stack.enter_async_context(asyncio.TaskGroup())
             reaper_stop = asyncio.Event()
@@ -134,6 +139,7 @@ class Runtime:
             await stack.aclose()
             raise
 
+        self._runtime_root = runtime_root
         self._exit_stack = stack
         self._task_group = task_group
         self._reaper_stop = reaper_stop
@@ -160,6 +166,7 @@ class Runtime:
             self._exit_stack = None
             self._task_group = None
             self._reaper_stop = None
+            self._runtime_root = self._configured_runtime_root
             self._started = False
 
         if reaper_stop is not None:
@@ -251,7 +258,11 @@ class Runtime:
         container_name = (
             f"{self._engine.build_container_name(pool.artifact_path)}-{uuid4().hex[:8]}"
         )
-        mount_dir = self._runtime_root / pool.artifact_path.stem / uuid4().hex
+        runtime_root = self._runtime_root
+        if runtime_root is None:
+            raise OCIAppRuntimeError("runtime must be started before creating workers")
+
+        mount_dir = runtime_root / pool.artifact_path.stem / uuid4().hex
         socket_path = mount_dir / Path(DEFAULT_SOCKET_PATH).name
         container_id = self._engine.run_container(
             image_reference, mount_dir, container_name

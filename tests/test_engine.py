@@ -93,6 +93,7 @@ def test_run_container_constructs_expected_command(tmp_path: "Path") -> None:
     )
 
     assert container_id == "container-123"
+    assert tmp_path.stat().st_mode & 0o777 == 0o733
     assert runner.commands[0][0] == (
         "docker",
         "run",
@@ -124,7 +125,13 @@ def test_stop_container_wraps_command_failures() -> None:
     with pytest.raises(InstanceShutdownError, match="failed to stop container"):
         adapter.stop_container("container-123", 3.0)
 
-    assert runner.commands[0][0] == ("docker", "stop", "--time", "3", "container-123")
+    assert runner.commands[0][0] == (
+        "docker",
+        "stop",
+        "--timeout",
+        "3",
+        "container-123",
+    )
 
 
 def test_runtime_package_exports_docker_adapter_only() -> None:

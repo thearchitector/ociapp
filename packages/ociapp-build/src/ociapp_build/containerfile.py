@@ -9,6 +9,7 @@ OCIAPP_GIT_REQUIREMENT = (
     "ociapp @ git+https://github.com/thearchitector/ociapp.git@main"
     "#subdirectory=packages/ociapp"
 )
+APP_USER = "ociapp"
 
 
 def render_managed_containerfile(config: "ManagedBuildConfig", wheel_name: str) -> str:
@@ -29,8 +30,13 @@ def render_managed_containerfile(config: "ManagedBuildConfig", wheel_name: str) 
     return "\n".join([
         f"FROM {BASE_IMAGE}",
         package_install,
+        (
+            f"RUN groupadd --system {APP_USER} && "
+            f"useradd --system --gid {APP_USER} --create-home --home-dir /home/{APP_USER} {APP_USER}"
+        ),
         "COPY dist/ /tmp/dist/",
         f'RUN python -m pip install --no-cache-dir /tmp/dist/{wheel_name} "{OCIAPP_GIT_REQUIREMENT}"',
+        f"USER {APP_USER}",
         'ENTRYPOINT ["tini", "--"]',
         f'CMD ["ociapp", "serve", "--app", "{config.entrypoint}"]',
         "",

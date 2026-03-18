@@ -47,6 +47,10 @@ mypy_path = [
     "packages/ociapp/src",
     "packages/ociapp-build/src",
 ]
+exclude = [
+    '(^|/)build/',
+    '(^|/)dist/',
+]
 
 [[tool.mypy.overrides]]
 module = ["msgpack"]

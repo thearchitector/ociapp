@@ -61,6 +61,7 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
         self._server = await asyncio.start_unix_server(
             self._handle_connection, path=str(self._socket_path)
         )
+        self._ensure_socket_permissions()
 
     async def serve_forever(self) -> None:
         """Starts the server and blocks until it is cancelled."""
@@ -86,6 +87,12 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self._socket_path.exists() or self._socket_path.is_socket():
             self._socket_path.unlink()
+
+    def _ensure_socket_permissions(self) -> None:
+        if not self._socket_path.exists():
+            return
+
+        self._socket_path.chmod(0o666)
 
     async def _handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

@@ -52,7 +52,16 @@ from pathlib import Path
 
 from ociapp_runtime import Runtime
 
-async with Runtime() as runtime:
+async with (
+    Runtime(
+        engine=None,
+        startup_timeout=10,  # max seconds to wait for a container to start before failing
+        request_timeout=30,  # max seconds for a execution request to complete
+        shutdown_timeout=10,  # max seconds to wait for a container to gracefully stop before killing it
+        idle_timeout=60,  # duration to keep an idle container running before stopping it
+        reaper_interval=1,  # how frequently to check for and reap idle containers
+    ) as runtime
+):
     response = await runtime.execute(
         Path("dist/echo-app-0.1.0.ociapp"), {"value": "hello"}
     )

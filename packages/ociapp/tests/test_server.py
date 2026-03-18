@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
@@ -185,6 +186,7 @@ async def test_server_replaces_stale_socket(
         callback: object, *, path: str
     ) -> FakeAsyncioServer:
         captured["path"] = path
+        await asyncio.to_thread(Path(path).touch)
         return fake_server
 
     monkeypatch.setattr(asyncio, "start_unix_server", fake_start_unix_server)
@@ -192,7 +194,8 @@ async def test_server_replaces_stale_socket(
 
     await server.start()
 
-    assert not socket_path.exists()
+    assert socket_path.exists()
+    assert socket_path.stat().st_mode & 0o777 == 0o666
     assert captured["path"] == str(socket_path)
 
     socket_path.write_text("placeholder")

@@ -168,6 +168,40 @@ def test_runtime_defaults_to_docker_adapter(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_uses_managed_temporary_root_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cleanup_calls: list[Path] = []
+
+    class FakeTemporaryDirectory:
+        def __init__(self, *, prefix: str) -> None:
+            self.name = str(tmp_path / f"{prefix}managed")
+            Path(self.name).mkdir()
+
+        def cleanup(self) -> None:
+            path = Path(self.name)
+            cleanup_calls.append(path)
+            path.rmdir()
+
+    monkeypatch.setattr(runtime_module, "TemporaryDirectory", FakeTemporaryDirectory)
+
+    runtime = Runtime()
+
+    assert runtime._runtime_root is None
+
+    await runtime.start()
+
+    managed_root = (tmp_path / "ociapp-runtime-managed").resolve()
+    assert runtime._runtime_root == managed_root
+
+    await runtime.close()
+
+    assert cleanup_calls == [managed_root]
+    assert runtime._runtime_root is None
+    assert not managed_root.exists()
+
+
+@pytest.mark.asyncio
 async def test_runtime_requires_lifecycle_start(tmp_path: Path) -> None:
     runtime = Runtime(engine=FakeEngine(), runtime_root=tmp_path)
 
