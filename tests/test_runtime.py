@@ -1,12 +1,12 @@
 import asyncio
-from collections.abc import Callable  # noqa: TC003
-from pathlib import Path  # noqa: TC003
+from collections.abc import Callable
+from pathlib import Path
 
 import pytest
-from ociapp import ErrorPayload
+from ociapp.errors import ErrorPayload
 
 import ociapp_runtime.runtime as runtime_module
-from ociapp_runtime import DockerAdapter
+from ociapp_runtime import DockerAdapter, Runtime
 from ociapp_runtime.errors import (
     InstanceStartupError,
     OCIAppRuntimeError,
@@ -14,7 +14,6 @@ from ociapp_runtime.errors import (
     RequestTimeoutError,
     ResponseProtocolError,
 )
-from ociapp_runtime.runtime import Runtime
 
 REPLACEMENT_WORKER_COUNT = 2
 
@@ -161,8 +160,8 @@ class SessionFactory:
         return self._sessions.pop(0)
 
 
-def test_runtime_defaults_to_docker_adapter(tmp_path: Path) -> None:
-    runtime = Runtime(runtime_root=tmp_path)
+def test_runtime_defaults_to_docker_adapter() -> None:
+    runtime = Runtime()
 
     assert isinstance(runtime._engine, DockerAdapter)
 
@@ -189,12 +188,12 @@ async def test_runtime_uses_managed_temporary_root_by_default(
 
     assert runtime._runtime_root is None
 
-    await runtime.start()
+    await runtime.__aenter__()
 
     managed_root = (tmp_path / "ociapp-runtime-managed").resolve()
     assert runtime._runtime_root == managed_root
 
-    await runtime.close()
+    await runtime.__aexit__(None, None, None)
 
     assert cleanup_calls == [managed_root]
     assert runtime._runtime_root is None
@@ -203,7 +202,7 @@ async def test_runtime_uses_managed_temporary_root_by_default(
 
 @pytest.mark.asyncio
 async def test_runtime_requires_lifecycle_start(tmp_path: Path) -> None:
-    runtime = Runtime(engine=FakeEngine(), runtime_root=tmp_path)
+    runtime = Runtime(engine=FakeEngine())
 
     with pytest.raises(OCIAppRuntimeError):
         await runtime.execute(tmp_path / "demo.ociapp", {"value": "payload"})
@@ -218,12 +217,10 @@ async def test_runtime_reuses_warm_instances(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(
-        engine=engine, runtime_root=tmp_path / "runtime", idle_timeout=10.0
-    ) as runtime:
+    async with Runtime(engine=engine, idle_timeout=10.0) as runtime:
         first = await runtime.execute(artifact, {"value": "hello"})
         second = await runtime.execute(artifact, {"value": "world"})
 
@@ -243,14 +240,11 @@ async def test_runtime_reaps_idle_instances(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
     async with Runtime(
-        engine=engine,
-        runtime_root=tmp_path / "runtime",
-        idle_timeout=0.01,
-        reaper_interval=0.01,
+        engine=engine, idle_timeout=0.01, reaper_interval=0.01
     ) as runtime:
         await runtime.execute(artifact, {"value": "hello"})
         await wait_for(lambda: len(engine.stop_calls) == 1)
@@ -267,9 +261,7 @@ async def test_runtime_enforces_startup_timeout(
 
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(
-        engine=engine, runtime_root=tmp_path / "runtime", startup_timeout=0.05
-    ) as runtime:
+    async with Runtime(engine=engine, startup_timeout=0.05) as runtime:
         with pytest.raises(InstanceStartupError):
             await runtime.execute(artifact, {"value": "hello"})
 
@@ -283,12 +275,10 @@ async def test_runtime_keeps_worker_after_per_request_timeout(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(
-        engine=engine, runtime_root=tmp_path / "runtime", request_timeout=0.05
-    ) as runtime:
+    async with Runtime(engine=engine, request_timeout=0.05) as runtime:
         timed_out_task = asyncio.create_task(
             runtime.execute(artifact, {"value": "slow"})
         )
@@ -316,10 +306,10 @@ async def test_runtime_multiplexes_concurrent_requests_on_one_worker(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(engine=engine, runtime_root=tmp_path / "runtime") as runtime:
+    async with Runtime(engine=engine) as runtime:
         first_task = asyncio.create_task(runtime.execute(artifact, {"value": "first"}))
         second_task = asyncio.create_task(
             runtime.execute(artifact, {"value": "second"})
@@ -350,10 +340,12 @@ async def test_runtime_coalesces_concurrent_cold_starts(
         await open_release.wait()
         return session
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", fake_open_worker_session)
+    monkeypatch.setattr(
+        runtime_module, "_open_worker_session", fake_open_worker_session
+    )
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(engine=engine, runtime_root=tmp_path / "runtime") as runtime:
+    async with Runtime(engine=engine) as runtime:
         first_task = asyncio.create_task(runtime.execute(artifact, {"value": "first"}))
         await open_started.wait()
         second_task = asyncio.create_task(
@@ -383,10 +375,10 @@ async def test_runtime_propagates_remote_errors_without_retiring_worker(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(engine=engine, runtime_root=tmp_path / "runtime") as runtime:
+    async with Runtime(engine=engine) as runtime:
         failing_task = asyncio.create_task(runtime.execute(artifact, {"value": "boom"}))
         await session.wait_for_pending(1)
         session.fail(
@@ -423,10 +415,10 @@ async def test_runtime_retires_failed_transport_and_replaces_worker(
     factory = SessionFactory([first_session, second_session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    async with Runtime(engine=engine, runtime_root=tmp_path / "runtime") as runtime:
+    async with Runtime(engine=engine) as runtime:
         first_task = asyncio.create_task(runtime.execute(artifact, {"value": "first"}))
         second_task = asyncio.create_task(
             runtime.execute(artifact, {"value": "second"})
@@ -457,15 +449,15 @@ async def test_runtime_close_fails_in_flight_requests_and_stops_container_once(
     factory = SessionFactory([session])
     artifact = create_artifact(tmp_path)
 
-    monkeypatch.setattr(runtime_module, "open_worker_session", factory.open)
+    monkeypatch.setattr(runtime_module, "_open_worker_session", factory.open)
     monkeypatch.setattr(runtime_module, "_is_socket", lambda path: path.exists())
 
-    runtime = Runtime(engine=engine, runtime_root=tmp_path / "runtime")
-    await runtime.start()
+    runtime = Runtime(engine=engine)
+    await runtime.__aenter__()
 
     request_task = asyncio.create_task(runtime.execute(artifact, {"value": "slow"}))
     await session.wait_for_pending(1)
-    await runtime.close()
+    await runtime.__aexit__(None, None, None)
 
     with pytest.raises(OCIAppRuntimeError, match="runtime is closing"):
         await request_task

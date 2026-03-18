@@ -1,18 +1,15 @@
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from ociapp_build.config import (
-    BuildConfigError,
-    CustomBuildConfig,
-    ManagedBuildConfig,
-    load_build_project,
+    _BuildConfigError,
+    _CustomBuildConfig,
+    _load_build_project,
+    _ManagedBuildConfig,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
 
-
-def write_pyproject(project_root: "Path", body: str) -> None:
+def write_pyproject(project_root: Path, body: str) -> None:
     project_root.mkdir(parents=True, exist_ok=True)
     (project_root / "pyproject.toml").write_text(body.strip() + "\n")
 
@@ -30,7 +27,7 @@ version = "1.2.3"
 entrypoint = "demo.main:app"
 system-packages = ["git", "curl"]
 """,
-            ManagedBuildConfig,
+            _ManagedBuildConfig,
         ),
         (
             """
@@ -42,19 +39,19 @@ version = "1.2.3"
 mode = "custom"
 containerfile = "Containerfile"
 """,
-            CustomBuildConfig,
+            _CustomBuildConfig,
         ),
     ],
     ids=["managed", "custom"],
 )
 def test_load_build_project_valid_configs(
-    tmp_path: "Path", body: str, expected_type: type[object]
+    tmp_path: Path, body: str, expected_type: type[object]
 ) -> None:
     project_root = tmp_path / "project"
     write_pyproject(project_root, body)
     (project_root / "Containerfile").write_text("FROM scratch\n")
 
-    build_project_config = load_build_project(project_root)
+    build_project_config = _load_build_project(project_root)
 
     assert isinstance(build_project_config.config, expected_type)
 
@@ -95,15 +92,15 @@ containerfile = "Missingfile"
         "custom-missing-containerfile",
     ],
 )
-def test_load_build_project_invalid_configs(tmp_path: "Path", body: str) -> None:
+def test_load_build_project_invalid_configs(tmp_path: Path, body: str) -> None:
     project_root = tmp_path / "project"
     write_pyproject(project_root, body)
 
-    with pytest.raises(BuildConfigError):
-        load_build_project(project_root)
+    with pytest.raises(_BuildConfigError):
+        _load_build_project(project_root)
 
 
-def test_load_build_project_extracts_metadata(tmp_path: "Path") -> None:
+def test_load_build_project_extracts_metadata(tmp_path: Path) -> None:
     project_root = tmp_path / "project"
     write_pyproject(
         project_root,
@@ -117,7 +114,7 @@ entrypoint = "demo.main:app"
 """,
     )
 
-    build_project_config = load_build_project(project_root)
+    build_project_config = _load_build_project(project_root)
 
     assert build_project_config.metadata.name == "demo-app"
     assert build_project_config.metadata.version == "1.2.3"

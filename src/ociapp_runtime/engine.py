@@ -3,15 +3,15 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Protocol
 
 from .errors import ArtifactLoadError, InstanceShutdownError, InstanceStartupError
-from .runner import CommandRunner
+from .runner import _CommandRunner
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["DockerAdapter", "EngineAdapter"]
+_DEFAULT_COMMAND_TIMEOUT = 60.0
 
 
-class EngineAdapter(Protocol):
+class _EngineAdapter(Protocol):
     """Defines the engine operations used by the runtime."""
 
     def load_archive(self, artifact_path: "Path") -> str:
@@ -33,11 +33,9 @@ class EngineAdapter(Protocol):
 class DockerAdapter:
     """Wraps Docker command construction for OCIApp runtime workers."""
 
-    def __init__(
-        self, runner: CommandRunner | None = None, command_timeout: float = 60.0
-    ) -> None:
-        self._runner = runner or CommandRunner()
-        self._command_timeout = command_timeout
+    def __init__(self) -> None:
+        self._runner = _CommandRunner()
+        self._command_timeout = _DEFAULT_COMMAND_TIMEOUT
 
     def load_archive(self, artifact_path: "Path") -> str:
         """Loads an OCI archive and returns the loaded image reference."""

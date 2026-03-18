@@ -6,11 +6,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-class CommandExecutionError(Exception):
+class _CommandExecutionError(Exception):
     """Raised when an OCIApp build command fails."""
 
 
-class CommandResult(NamedTuple):
+class _CommandResult(NamedTuple):
     """Captures the output from a subprocess invocation."""
 
     args: tuple[str, ...]
@@ -19,10 +19,10 @@ class CommandResult(NamedTuple):
     returncode: int
 
 
-class CommandRunner:
+class _CommandRunner:
     """Runs external commands for OCIApp builds."""
 
-    def run(self, args: "Sequence[str]", cwd: "Path | None" = None) -> CommandResult:
+    def run(self, args: "Sequence[str]", cwd: "Path | None" = None) -> _CommandResult:
         """Executes a subprocess command."""
 
         completed = subprocess.run(
@@ -32,14 +32,14 @@ class CommandRunner:
             text=True,
             check=False,
         )
-        result = CommandResult(
+        result = _CommandResult(
             args=tuple(args),
             stdout=completed.stdout,
             stderr=completed.stderr,
             returncode=completed.returncode,
         )
         if completed.returncode != 0:
-            raise CommandExecutionError(
+            raise _CommandExecutionError(
                 f"command failed with exit code {completed.returncode}: {' '.join(args)}\n"
                 f"{completed.stderr.strip()}"
             )

@@ -1,10 +1,12 @@
-from ociapp_build.config import ManagedBuildConfig
-from ociapp_build.containerfile import render_managed_containerfile
+from ociapp_build.config import _ManagedBuildConfig
+from ociapp_build.containerfile import _render_managed_containerfile
 
 
 def test_render_managed_containerfile_includes_required_commands() -> None:
-    rendered = render_managed_containerfile(
-        ManagedBuildConfig(entrypoint="demo.main:app", system_packages=("git", "curl")),
+    rendered = _render_managed_containerfile(
+        _ManagedBuildConfig(
+            entrypoint="demo.main:app", system_packages=("git", "curl")
+        ),
         wheel_name="demo_app-1.2.3-py3-none-any.whl",
     )
 

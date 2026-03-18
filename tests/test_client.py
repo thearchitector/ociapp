@@ -2,16 +2,14 @@ import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import UUID, uuid4  # noqa: TC003
+from uuid import UUID, uuid4
 
 import msgpack
 import pytest
-from ociapp import (
-    Application,
-    ErrorPayload,  # noqa: TC002
-    OciAppServer,
-    RequestEnvelope,  # noqa: TC002
-    ResponseEnvelope,
+from ociapp import Application
+from ociapp.errors import ErrorPayload
+from ociapp.models import _RequestEnvelope, _ResponseEnvelope
+from ociapp.protocol import (
     decode_payload,
     decode_request_envelope,
     encode_error_payload,
@@ -19,13 +17,10 @@ from ociapp import (
     encode_response_envelope,
     pack_frame,
 )
+from ociapp.server import _OciAppServer
 from pydantic import BaseModel
 
-from ociapp_runtime.client import (  # noqa: TC002
-    WorkerSession,
-    execute_request,
-    open_worker_session,
-)
+from ociapp_runtime.client import _execute_request, _open_worker_session, _WorkerSession
 from ociapp_runtime.errors import (
     RemoteExecutionError,
     RequestTimeoutError,
@@ -78,7 +73,7 @@ class FakeStreamWriter:
 class RecordingTransport:
     def __init__(self) -> None:
         self.reader = asyncio.StreamReader()
-        self.requests: list[RequestEnvelope] = []
+        self.requests: list[_RequestEnvelope] = []
         self._request_condition = asyncio.Condition()
         self.writer = FakeStreamWriter(self.reader, self._handle_write)
 
@@ -94,7 +89,7 @@ class RecordingTransport:
     def feed_success(self, request_id: UUID, payload: dict[str, object]) -> None:
         self.feed_response(
             encode_response_envelope(
-                ResponseEnvelope(
+                _ResponseEnvelope(
                     request_id=request_id, payload=encode_payload(payload), error=None
                 )
             )
@@ -103,7 +98,7 @@ class RecordingTransport:
     def feed_error(self, request_id: UUID, error: ErrorPayload) -> None:
         self.feed_response(
             encode_response_envelope(
-                ResponseEnvelope(
+                _ResponseEnvelope(
                     request_id=request_id,
                     payload=None,
                     error=encode_error_payload(error),
@@ -136,7 +131,7 @@ async def test_execute_request_round_trips_against_ociapp_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app: Application[EchoRequest, EchoResponse] = EchoApplication()
-    server = OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
+    server = _OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
     reader = asyncio.StreamReader()
 
     async def responder(frame: bytes) -> None:
@@ -156,7 +151,7 @@ async def test_execute_request_round_trips_against_ociapp_handler(
         "ociapp_runtime.client.asyncio.open_unix_connection", fake_open_unix_connection
     )
 
-    result = await execute_request(Path("/virtual/app.sock"), {"value": "hello"})
+    result = await _execute_request(Path("/virtual/app.sock"), {"value": "hello"})
 
     assert result == {"value": "hello"}
 
@@ -166,7 +161,7 @@ async def test_execute_request_surfaces_application_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app: Application[EchoRequest, EchoResponse] = FailingApplication()
-    server = OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
+    server = _OciAppServer(app=app, socket_path=Path("/virtual/app.sock"))
     reader = asyncio.StreamReader()
 
     async def responder(frame: bytes) -> None:
@@ -187,7 +182,7 @@ async def test_execute_request_surfaces_application_errors(
     )
 
     with pytest.raises(RemoteExecutionError) as exc_info:
-        await execute_request(Path("/virtual/app.sock"), {"value": "hello"})
+        await _execute_request(Path("/virtual/app.sock"), {"value": "hello"})
 
     assert exc_info.value.error.error_type == "RuntimeError"
     assert exc_info.value.error.message == "boom"
@@ -280,7 +275,7 @@ async def test_worker_session_invalid_inner_payload_fails_only_matching_request(
 
         transport.feed_response(
             encode_response_envelope(
-                ResponseEnvelope(
+                _ResponseEnvelope(
                     request_id=transport.request_id_for_value("broken"),
                     payload=msgpack.packb("bad", use_bin_type=True),
                     error=None,
@@ -351,7 +346,7 @@ async def test_worker_session_fatal_transport_failure_fails_all_pending_requests
 
 async def open_session(
     monkeypatch: pytest.MonkeyPatch, transport: RecordingTransport
-) -> WorkerSession:
+) -> _WorkerSession:
     async def fake_open_unix_connection(
         path: str,
     ) -> tuple[asyncio.StreamReader, FakeStreamWriter]:
@@ -361,11 +356,11 @@ async def open_session(
     monkeypatch.setattr(
         "ociapp_runtime.client.asyncio.open_unix_connection", fake_open_unix_connection
     )
-    return await open_worker_session(Path("/virtual/app.sock"))
+    return await _open_worker_session(Path("/virtual/app.sock"))
 
 
 async def close_session(
-    session: WorkerSession, reader_task: asyncio.Task[None]
+    session: _WorkerSession, reader_task: asyncio.Task[None]
 ) -> None:
     await session.close()
     with contextlib.suppress(ResponseProtocolError):

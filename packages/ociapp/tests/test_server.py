@@ -5,16 +5,16 @@ from uuid import uuid4
 
 import msgpack
 import pytest
-from ociapp import (
-    Application,
-    OciAppServer,
-    RequestEnvelope,
+from ociapp import Application
+from ociapp.models import _RequestEnvelope
+from ociapp.protocol import (
     decode_error_payload,
     decode_response_envelope,
     encode_request_envelope,
     pack_frame,
     read_frame,
 )
+from ociapp.server import _OciAppServer
 from pydantic import BaseModel
 
 
@@ -108,7 +108,7 @@ class FakeStreamWriter:
 def make_envelope(value: object, request_id: object | None = None) -> bytes:
     envelope_request_id = uuid4() if request_id is None else request_id
     return encode_request_envelope(
-        RequestEnvelope(
+        _RequestEnvelope(
             request_id=cast("Any", envelope_request_id),
             payload=msgpack.packb(value, use_bin_type=True),
         )
@@ -139,7 +139,7 @@ async def decode_written_responses(payload: bytes) -> list[Any]:
 
 @pytest.mark.asyncio
 async def test_server_round_trip() -> None:
-    server = OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
+    server = _OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
 
     response_frame = await server._handle_request(make_envelope({"value": "hello"}))
 
@@ -150,7 +150,7 @@ async def test_server_round_trip() -> None:
 
 @pytest.mark.asyncio
 async def test_server_returns_validation_error() -> None:
-    server = OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
+    server = _OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
 
     response_frame = await server._handle_request(make_envelope({"missing": "value"}))
 
@@ -162,7 +162,7 @@ async def test_server_returns_validation_error() -> None:
 
 @pytest.mark.asyncio
 async def test_server_maps_application_exception() -> None:
-    server = OciAppServer(app=FailingApplication(), socket_path="ignored.sock")
+    server = _OciAppServer(app=FailingApplication(), socket_path="ignored.sock")
 
     response_frame = await server._handle_request(make_envelope({"value": "hello"}))
 
@@ -190,7 +190,7 @@ async def test_server_replaces_stale_socket(
         return fake_server
 
     monkeypatch.setattr(asyncio, "start_unix_server", fake_start_unix_server)
-    server = OciAppServer(app=EchoApplication(), socket_path=socket_path)
+    server = _OciAppServer(app=EchoApplication(), socket_path=socket_path)
 
     await server.start()
 
@@ -207,7 +207,7 @@ async def test_server_replaces_stale_socket(
 
 @pytest.mark.asyncio
 async def test_server_rejects_malformed_frame() -> None:
-    server = OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
+    server = _OciAppServer(app=EchoApplication(), socket_path="ignored.sock")
     reader = asyncio.StreamReader()
     reader.feed_data((0).to_bytes(4, "big"))
     reader.feed_eof()
@@ -222,7 +222,7 @@ async def test_server_rejects_malformed_frame() -> None:
 @pytest.mark.asyncio
 async def test_server_writes_pipelined_responses_in_completion_order() -> None:
     app = CoordinatedApplication()
-    server = OciAppServer(app=app, socket_path="ignored.sock")
+    server = _OciAppServer(app=app, socket_path="ignored.sock")
     reader = asyncio.StreamReader()
     writer = FakeStreamWriter()
     first_request_id, first_frame = make_request_frame({"value": "first"})
@@ -260,7 +260,7 @@ async def test_server_writes_pipelined_responses_in_completion_order() -> None:
 @pytest.mark.asyncio
 async def test_server_cancels_outstanding_requests_on_protocol_failure() -> None:
     app = CancellationAwareApplication()
-    server = OciAppServer(app=app, socket_path="ignored.sock")
+    server = _OciAppServer(app=app, socket_path="ignored.sock")
     reader = asyncio.StreamReader()
     writer = FakeStreamWriter()
     _, request_frame = make_request_frame({"value": "hello"})

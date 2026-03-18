@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from typing import Self
 
 
-class RequestEnvelope(BaseModel):
+class _RequestEnvelope(BaseModel):
     """Represents a transport request envelope."""
 
     model_config = ConfigDict(frozen=True)
@@ -24,7 +24,7 @@ class RequestEnvelope(BaseModel):
         return value
 
 
-class ResponseEnvelope(BaseModel):
+class _ResponseEnvelope(BaseModel):
     """Represents a transport response envelope."""
 
     model_config = ConfigDict(frozen=True)

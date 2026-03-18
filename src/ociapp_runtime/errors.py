@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ociapp import ErrorPayload
+    from ociapp.errors import ErrorPayload
 
 
 class OCIAppRuntimeError(Exception):

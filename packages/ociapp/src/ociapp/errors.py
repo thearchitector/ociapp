@@ -9,14 +9,6 @@ class ProtocolError(OCIAppError):
     """Raised when transport protocol handling fails."""
 
 
-class FrameError(ProtocolError):
-    """Raised when framed transport data is malformed."""
-
-
-class EnvelopeError(ProtocolError):
-    """Raised when an envelope cannot be decoded or validated."""
-
-
 class PayloadCodecError(OCIAppError):
     """Raised when a payload cannot be encoded or decoded."""
 

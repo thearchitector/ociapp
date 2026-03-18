@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import cast
 
+import ociapp
 import pytest
 from ociapp import Application
 from pydantic import BaseModel, ValidationError
@@ -41,3 +42,16 @@ async def test_application_execute_raises_validation_errors() -> None:
 
     with pytest.raises(ValidationError, match="value"):
         await execute({"value": "bad"})
+
+
+def test_package_root_exports_application_only() -> None:
+    assert ociapp.__all__ == ["Application"]
+    assert hasattr(ociapp, "Application")
+    for name in (
+        "ApplicationLoadError",
+        "ErrorPayload",
+        "PayloadCodecError",
+        "ProtocolError",
+        "load_application",
+    ):
+        assert not hasattr(ociapp, name)

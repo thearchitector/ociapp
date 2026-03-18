@@ -10,9 +10,9 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from ociapp import DEFAULT_SOCKET_PATH
+from ociapp.protocol import SOCKET_PATH
 
-from .client import open_worker_session
+from .client import _open_worker_session
 from .engine import DockerAdapter
 from .errors import (
     ArtifactLoadError,
@@ -22,13 +22,11 @@ from .errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from .client import WorkerSession
-    from .engine import EngineAdapter
+    from .client import _WorkerSession
+    from .engine import _EngineAdapter
 
 
-class InstanceState(StrEnum):
+class _InstanceState(StrEnum):
     """Represents the lifecycle state of a worker instance."""
 
     STARTING = "starting"
@@ -38,7 +36,7 @@ class InstanceState(StrEnum):
 
 
 @dataclass(slots=True)
-class WorkerInstance:
+class _WorkerInstance:
     """Tracks runtime metadata for a single container worker."""
 
     image_key: str
@@ -46,23 +44,23 @@ class WorkerInstance:
     container_name: str
     mount_dir: Path
     socket_path: Path
-    state: InstanceState
+    state: _InstanceState
     last_used_at: float
     startup_future: asyncio.Future[None]
     teardown: AsyncExitStack
     active_request_count: int = 0
-    session: "WorkerSession | None" = None
+    session: "_WorkerSession | None" = None
     shutdown_error: BaseException | None = None
     retired: bool = False
 
 
 @dataclass(slots=True)
-class ImagePool:
+class _ImagePool:
     """Tracks warm worker instances for one OCIApp artifact."""
 
     artifact_path: Path
     image_reference: str | None = None
-    instances: list[WorkerInstance] = field(default_factory=list)
+    instances: list[_WorkerInstance] = field(default_factory=list)
 
 
 class Runtime:
@@ -71,27 +69,22 @@ class Runtime:
     def __init__(  # noqa: PLR0913
         self,
         *,
-        runtime_root: Path | str | None = None,
-        engine: "EngineAdapter | None" = None,
+        engine: "_EngineAdapter | None" = None,
         startup_timeout: float = 10,
         request_timeout: float = 30,
         shutdown_timeout: float = 10,
         idle_timeout: float = 900,
         reaper_interval: float = 1,
-        clock: "Callable[[], float] | None" = None,
     ) -> None:
-        self._configured_runtime_root = (
-            None if runtime_root is None else Path(runtime_root).resolve()
-        )
-        self._runtime_root = self._configured_runtime_root
+        self._runtime_root: Path | None = None
         self._engine = engine or DockerAdapter()
         self._startup_timeout = startup_timeout
         self._request_timeout = request_timeout
         self._shutdown_timeout = shutdown_timeout
         self._idle_timeout = idle_timeout
         self._reaper_interval = reaper_interval
-        self._clock = clock or time.monotonic
-        self._pools: dict[str, ImagePool] = {}
+        self._clock = time.monotonic
+        self._pools: dict[str, _ImagePool] = {}
         self._lock = asyncio.Lock()
         self._exit_stack: AsyncExitStack | None = None
         self._task_group: asyncio.TaskGroup | None = None
@@ -100,7 +93,7 @@ class Runtime:
         self._started = False
 
     async def __aenter__(self) -> "Runtime":
-        await self.start()
+        await self._start()
         return self
 
     async def __aexit__(
@@ -109,9 +102,9 @@ class Runtime:
         exc: BaseException | None,
         traceback: object | None,
     ) -> None:
-        await self.close()
+        await self._close()
 
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Starts the runtime background tasks."""
 
         if self._started:
@@ -121,15 +114,9 @@ class Runtime:
         await stack.__aenter__()
 
         try:
-            runtime_root = self._configured_runtime_root
-            if runtime_root is None:
-                temporary_directory = TemporaryDirectory(prefix="ociapp-runtime-")
-                runtime_root = Path(temporary_directory.name)
-                stack.callback(temporary_directory.cleanup)
-            else:
-                runtime_root.mkdir(parents=True, exist_ok=True)
-                stack.callback(shutil.rmtree, runtime_root, ignore_errors=True)
-
+            temporary_directory = TemporaryDirectory(prefix="ociapp-runtime-")
+            runtime_root = Path(temporary_directory.name)
+            stack.callback(temporary_directory.cleanup)
             task_group = await stack.enter_async_context(asyncio.TaskGroup())
             reaper_stop = asyncio.Event()
             task_group.create_task(
@@ -146,7 +133,7 @@ class Runtime:
         self._accepting_requests = True
         self._started = True
 
-    async def close(self) -> None:
+    async def _close(self) -> None:
         """Stops all workers and the background reaper."""
 
         if not self._started:
@@ -157,7 +144,7 @@ class Runtime:
             self._accepting_requests = False
             for pool in self._pools.values():
                 for instance in pool.instances:
-                    instance.state = InstanceState.STOPPING
+                    instance.state = _InstanceState.STOPPING
                     instance.shutdown_error = closing_error
             self._pools.clear()
 
@@ -166,7 +153,7 @@ class Runtime:
             self._exit_stack = None
             self._task_group = None
             self._reaper_stop = None
-            self._runtime_root = self._configured_runtime_root
+            self._runtime_root = None
             self._started = False
 
         if reaper_stop is not None:
@@ -197,7 +184,7 @@ class Runtime:
         finally:
             await self._release_instance(instance)
 
-    async def _acquire_instance(self, artifact_path: Path) -> WorkerInstance:
+    async def _acquire_instance(self, artifact_path: Path) -> _WorkerInstance:
         image_key = str(artifact_path)
 
         while True:
@@ -206,7 +193,7 @@ class Runtime:
                 self._ensure_accepting_requests_locked()
                 pool = self._pools.get(image_key)
                 if pool is None:
-                    pool = ImagePool(artifact_path=artifact_path)
+                    pool = _ImagePool(artifact_path=artifact_path)
                     self._pools[image_key] = pool
 
                 instance = _find_dispatchable_instance(pool.instances)
@@ -238,18 +225,18 @@ class Runtime:
                     )
                     return instance
 
-    async def _release_instance(self, instance: WorkerInstance) -> None:
+    async def _release_instance(self, instance: _WorkerInstance) -> None:
         async with self._lock:
             instance.active_request_count = max(0, instance.active_request_count - 1)
             instance.last_used_at = self._clock()
-            if instance.state == InstanceState.STOPPING:
+            if instance.state == _InstanceState.STOPPING:
                 return
 
             instance.state = _state_for_active_request_count(
                 instance.active_request_count
             )
 
-    def _create_instance(self, pool: ImagePool) -> WorkerInstance:
+    def _create_instance(self, pool: _ImagePool) -> _WorkerInstance:
         image_reference = pool.image_reference
         if image_reference is None:
             image_reference = self._engine.load_archive(pool.artifact_path)
@@ -263,18 +250,18 @@ class Runtime:
             raise OCIAppRuntimeError("runtime must be started before creating workers")
 
         mount_dir = runtime_root / pool.artifact_path.stem / uuid4().hex
-        socket_path = mount_dir / Path(DEFAULT_SOCKET_PATH).name
+        socket_path = mount_dir / Path(SOCKET_PATH).name
         container_id = self._engine.run_container(
             image_reference, mount_dir, container_name
         )
 
-        instance = WorkerInstance(
+        instance = _WorkerInstance(
             image_key=str(pool.artifact_path),
             container_id=container_id,
             container_name=container_name,
             mount_dir=mount_dir,
             socket_path=socket_path,
-            state=InstanceState.STARTING,
+            state=_InstanceState.STARTING,
             last_used_at=self._clock(),
             startup_future=asyncio.get_running_loop().create_future(),
             teardown=AsyncExitStack(),
@@ -283,7 +270,7 @@ class Runtime:
         pool.instances.append(instance)
         return instance
 
-    def _register_instance_teardown(self, instance: WorkerInstance) -> None:
+    def _register_instance_teardown(self, instance: _WorkerInstance) -> None:
         exit_stack = self._exit_stack
         if exit_stack is None:
             raise OCIAppRuntimeError("runtime must be started before creating workers")
@@ -297,10 +284,10 @@ class Runtime:
         instance.teardown.push_async_callback(self._close_instance_session, instance)
         exit_stack.push_async_callback(instance.teardown.aclose)
 
-    async def _start_instance(self, instance: WorkerInstance) -> None:
+    async def _start_instance(self, instance: _WorkerInstance) -> None:
         try:
             await self._wait_for_socket(instance)
-            session = await open_worker_session(instance.socket_path)
+            session = await _open_worker_session(instance.socket_path)
         except Exception as exc:
             await self._retire_instance(instance, error=exc)
             raise
@@ -309,13 +296,13 @@ class Runtime:
             task_group = self._require_task_group()
             async with self._lock:
                 self._ensure_accepting_requests_locked()
-                if instance.state == InstanceState.STOPPING:
+                if instance.state == _InstanceState.STOPPING:
                     raise instance.shutdown_error or OCIAppRuntimeError(
                         "runtime is closing"
                     )
 
                 instance.session = session
-                instance.state = InstanceState.READY
+                instance.state = _InstanceState.READY
                 instance.last_used_at = self._clock()
                 if not instance.startup_future.done():
                     instance.startup_future.set_result(None)
@@ -328,7 +315,7 @@ class Runtime:
             await self._retire_instance(instance, error=exc)
             raise
 
-    async def _run_response_reader(self, instance: WorkerInstance) -> None:
+    async def _run_response_reader(self, instance: _WorkerInstance) -> None:
         session = instance.session
         if session is None:
             return
@@ -339,7 +326,7 @@ class Runtime:
             await self._retire_instance(instance, error=exc)
 
     async def _retire_instance(
-        self, instance: WorkerInstance, *, error: BaseException | None = None
+        self, instance: _WorkerInstance, *, error: BaseException | None = None
     ) -> None:
         async with self._lock:
             if error is not None and instance.shutdown_error is None:
@@ -348,12 +335,12 @@ class Runtime:
                 return
 
             instance.retired = True
-            instance.state = InstanceState.STOPPING
+            instance.state = _InstanceState.STOPPING
             _remove_instance_from_pool(self._pools, instance)
 
         await instance.teardown.aclose()
 
-    async def _close_instance_session(self, instance: WorkerInstance) -> None:
+    async def _close_instance_session(self, instance: _WorkerInstance) -> None:
         close_error = instance.shutdown_error
         if not instance.startup_future.done():
             instance.startup_future.set_exception(
@@ -366,12 +353,15 @@ class Runtime:
         if instance.session is not None:
             await instance.session.close(close_error)
 
-    async def _wait_for_socket(self, instance: WorkerInstance) -> None:
+    async def _wait_for_socket(self, instance: _WorkerInstance) -> None:
         deadline = self._clock() + self._startup_timeout
         while self._clock() < deadline:
             if _is_socket(instance.socket_path):
                 return
-            if instance.state == InstanceState.STOPPING or not self._accepting_requests:
+            if (
+                instance.state == _InstanceState.STOPPING
+                or not self._accepting_requests
+            ):
                 raise OCIAppRuntimeError("runtime is closing")
             await asyncio.sleep(0.05)
 
@@ -387,17 +377,17 @@ class Runtime:
             except TimeoutError:
                 pass
 
-            candidates: list[WorkerInstance] = []
+            candidates: list[_WorkerInstance] = []
             async with self._lock:
                 now = self._clock()
                 for pool in self._pools.values():
                     for instance in list(pool.instances):
                         if (
-                            instance.state == InstanceState.READY
+                            instance.state == _InstanceState.READY
                             and instance.active_request_count == 0
                             and now - instance.last_used_at >= self._idle_timeout
                         ):
-                            instance.state = InstanceState.STOPPING
+                            instance.state = _InstanceState.STOPPING
                             candidates.append(instance)
 
             for instance in candidates:
@@ -415,9 +405,9 @@ class Runtime:
 
 
 def _find_dispatchable_instance(
-    instances: list[WorkerInstance],
-) -> WorkerInstance | None:
-    for state in (InstanceState.READY, InstanceState.BUSY, InstanceState.STARTING):
+    instances: list[_WorkerInstance],
+) -> _WorkerInstance | None:
+    for state in (_InstanceState.READY, _InstanceState.BUSY, _InstanceState.STARTING):
         for instance in instances:
             if instance.state == state:
                 return instance
@@ -425,25 +415,25 @@ def _find_dispatchable_instance(
     return None
 
 
-def _instance_can_accept_requests(instance: WorkerInstance) -> bool:
+def _instance_can_accept_requests(instance: _WorkerInstance) -> bool:
     session = instance.session
     return (
-        instance.state in {InstanceState.READY, InstanceState.BUSY}
+        instance.state in {_InstanceState.READY, _InstanceState.BUSY}
         and session is not None
         and session.is_open
         and not instance.retired
     )
 
 
-def _state_for_active_request_count(active_request_count: int) -> InstanceState:
+def _state_for_active_request_count(active_request_count: int) -> _InstanceState:
     if active_request_count > 0:
-        return InstanceState.BUSY
+        return _InstanceState.BUSY
 
-    return InstanceState.READY
+    return _InstanceState.READY
 
 
 def _remove_instance_from_pool(
-    pools: dict[str, ImagePool], instance: WorkerInstance
+    pools: dict[str, _ImagePool], instance: _WorkerInstance
 ) -> None:
     pool = pools.get(instance.image_key)
     if pool is None:

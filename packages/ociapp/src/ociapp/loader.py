@@ -8,10 +8,8 @@ from .errors import ApplicationLoadError
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-__all__ = ["ApplicationLoadError", "load_application"]
 
-
-def load_application(import_path: str) -> Application["BaseModel", "BaseModel"]:
+def _load_application(import_path: str) -> Application["BaseModel", "BaseModel"]:
     """Loads an application instance from an import path."""
 
     module_path, separator, attribute_name = import_path.partition(":")

@@ -1,6 +1,6 @@
 # Example
 
 ```bash
-ociapp-build echo-app dist
-python runtime_demo.py
+ociapp-build echo-app --output-dir dist
+uv run python runtime_demo.py
 ```

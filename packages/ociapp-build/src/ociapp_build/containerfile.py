@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import ManagedBuildConfig
+    from .config import _ManagedBuildConfig
 
 
 BASE_IMAGE = "python:3.14-slim"
@@ -12,7 +12,9 @@ OCIAPP_GIT_REQUIREMENT = (
 APP_USER = "ociapp"
 
 
-def render_managed_containerfile(config: "ManagedBuildConfig", wheel_name: str) -> str:
+def _render_managed_containerfile(
+    config: "_ManagedBuildConfig", wheel_name: str
+) -> str:
     """Renders the built-in managed OCIApp Containerfile."""
 
     system_packages = " ".join(config.system_packages)

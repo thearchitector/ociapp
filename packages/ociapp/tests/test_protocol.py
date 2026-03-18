@@ -2,15 +2,15 @@ from uuid import uuid4
 
 import msgpack
 import pytest
+from ociapp.errors import ErrorPayload, ProtocolError
+from ociapp.models import _RequestEnvelope, _ResponseEnvelope
 from ociapp.protocol import (
-    ErrorPayload,
-    ProtocolError,
-    RequestEnvelope,
-    ResponseEnvelope,
     decode_error_payload,
+    decode_payload,
     decode_request_envelope,
     decode_response_envelope,
     encode_error_payload,
+    encode_payload,
     encode_request_envelope,
     encode_response_envelope,
     pack_frame,
@@ -43,23 +43,23 @@ async def test_read_frame_rejects_truncated_body() -> None:
 def test_request_envelope_round_trip() -> None:
     request_id = uuid4()
     encoded = encode_request_envelope(
-        RequestEnvelope(request_id=request_id, payload=b"abc")
+        _RequestEnvelope(request_id=request_id, payload=b"abc")
     )
 
     decoded = decode_request_envelope(encoded)
 
-    assert decoded == RequestEnvelope(request_id=request_id, payload=b"abc")
+    assert decoded == _RequestEnvelope(request_id=request_id, payload=b"abc")
 
 
 def test_response_envelope_round_trip() -> None:
     request_id = uuid4()
     encoded = encode_response_envelope(
-        ResponseEnvelope(request_id=request_id, payload=b"abc", error=None)
+        _ResponseEnvelope(request_id=request_id, payload=b"abc", error=None)
     )
 
     decoded = decode_response_envelope(encoded)
 
-    assert decoded == ResponseEnvelope(
+    assert decoded == _ResponseEnvelope(
         request_id=request_id, payload=b"abc", error=None
     )
 
@@ -73,7 +73,7 @@ def test_response_envelope_validation_rejects_invalid_payload_error_combinations
     payload: bytes | None, error: bytes | None
 ) -> None:
     with pytest.raises(ValidationError, match="exactly one"):
-        ResponseEnvelope(request_id=uuid4(), payload=payload, error=error)
+        _ResponseEnvelope(request_id=uuid4(), payload=payload, error=error)
 
 
 def test_error_payload_round_trip() -> None:
@@ -88,6 +88,12 @@ def test_error_payload_round_trip() -> None:
     assert decoded == ErrorPayload(
         error_type="BoomError", message="bad request", details={"retryable": False}
     )
+
+
+def test_payload_round_trip() -> None:
+    encoded = encode_payload({"value": "hello"})
+
+    assert decode_payload(encoded) == {"value": "hello"}
 
 
 def test_decode_request_envelope_rejects_invalid_request_id() -> None:

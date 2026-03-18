@@ -1,21 +1,20 @@
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-from ociapp import Application, load_application
+from ociapp import Application
 from ociapp.cli import main
 from ociapp.errors import ApplicationLoadError
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from ociapp.loader import _load_application
+from ociapp.protocol import SOCKET_PATH
 
 
 def test_load_application_returns_app(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: "Path"
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     module_path = _write_module(tmp_path)
     monkeypatch.syspath_prepend(str(module_path.parent))
 
-    app = load_application("sample_app:app")
+    app = _load_application("sample_app:app")
 
     assert isinstance(app, Application)
     assert app.request_model.__name__ == "SampleRequest"
@@ -40,18 +39,16 @@ def test_load_application_returns_app(
     ],
 )
 def test_load_application_rejects_invalid_import_paths(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: "Path", import_path: str, pattern: str
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, import_path: str, pattern: str
 ) -> None:
     module_path = _write_module(tmp_path)
     monkeypatch.syspath_prepend(str(module_path.parent))
 
     with pytest.raises(ApplicationLoadError, match=pattern):
-        load_application(import_path)
+        _load_application(import_path)
 
 
-def test_cli_loads_app_and_passes_socket_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: "Path"
-) -> None:
+def test_cli_loads_app_and_uses_SOCKET_PATH(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
     app = object()
 
@@ -59,29 +56,22 @@ def test_cli_loads_app_and_passes_socket_path(
         captured["import_path"] = import_path
         return app
 
-    async def fake_serve(loaded_app: object, *, socket_path: "Path") -> None:
+    async def fake_serve(loaded_app: object, *, socket_path: Path) -> None:
         captured["app"] = loaded_app
         captured["socket_path"] = socket_path
 
-    monkeypatch.setattr("ociapp.cli.load_application", fake_load)
-    monkeypatch.setattr("ociapp.cli.serve_application", fake_serve)
-    socket_path = tmp_path / "nested" / "app.sock"
+    monkeypatch.setattr("ociapp.cli._load_application", fake_load)
+    monkeypatch.setattr("ociapp.cli._serve_application", fake_serve)
 
-    exit_code = main([
-        "serve",
-        "--app",
-        "sample_app:app",
-        "--socket-path",
-        str(socket_path),
-    ])
+    exit_code = main(["serve", "--app", "sample_app:app"])
 
     assert exit_code == 0
     assert captured["import_path"] == "sample_app:app"
     assert captured["app"] is app
-    assert captured["socket_path"] == socket_path
+    assert captured["socket_path"] == Path(SOCKET_PATH)
 
 
-def _write_module(tmp_path: "Path") -> "Path":
+def _write_module(tmp_path: Path) -> Path:
     module_path = tmp_path / "sample_app.py"
     module_path.write_text(
         "\n".join([

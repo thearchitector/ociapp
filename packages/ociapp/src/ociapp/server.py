@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING, cast
 from pydantic import BaseModel, ValidationError
 
 from .errors import ErrorPayload, PayloadCodecError, ProtocolError, ServerLifecycleError
-from .models import ResponseEnvelope
-from .payloads import decode_payload, encode_payload
+from .models import _ResponseEnvelope
 from .protocol import (
-    DEFAULT_SOCKET_PATH,
+    SOCKET_PATH,
+    decode_payload,
     decode_request_envelope,
     encode_error_payload,
+    encode_payload,
     encode_response_envelope,
     read_frame,
     write_frame,
@@ -21,16 +22,16 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from .application import Application
-    from .models import RequestEnvelope
+    from .models import _RequestEnvelope
 
 
-class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
+class _OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
     """Serves an OCIApp application over a Unix domain socket."""
 
     def __init__(
         self,
         app: "Application[RequestT, ResponseT]",
-        socket_path: Path | str = DEFAULT_SOCKET_PATH,
+        socket_path: Path | str = SOCKET_PATH,
     ) -> None:
         self._app = app
         self._socket_path = Path(socket_path)
@@ -42,7 +43,7 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
 
         return self._socket_path
 
-    async def __aenter__(self) -> "OciAppServer[RequestT, ResponseT]":
+    async def __aenter__(self) -> "_OciAppServer[RequestT, ResponseT]":
         await self.start()
         return self
 
@@ -143,7 +144,7 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
 
     async def _serve_request(
         self,
-        envelope: "RequestEnvelope",
+        envelope: "_RequestEnvelope",
         writer: asyncio.StreamWriter,
         write_lock: asyncio.Lock,
     ) -> None:
@@ -167,7 +168,7 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
 
         await self._wait_for_request_tasks(request_tasks)
 
-    async def _handle_request_envelope(self, envelope: "RequestEnvelope") -> bytes:
+    async def _handle_request_envelope(self, envelope: "_RequestEnvelope") -> bytes:
         try:
             execute = cast(
                 "Callable[[dict[str, object]], Awaitable[ResponseT]]", self._app.execute
@@ -175,7 +176,7 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
             response_model = await execute(decode_payload(envelope.payload))
             response_payload = encode_payload(response_model.model_dump(mode="python"))
             return encode_response_envelope(
-                ResponseEnvelope(
+                _ResponseEnvelope(
                     request_id=envelope.request_id, payload=response_payload, error=None
                 )
             )
@@ -206,10 +207,10 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
             )
 
     def _encode_error_response(
-        self, envelope: "RequestEnvelope", error: ErrorPayload
+        self, envelope: "_RequestEnvelope", error: ErrorPayload
     ) -> bytes:
         return encode_response_envelope(
-            ResponseEnvelope(
+            _ResponseEnvelope(
                 request_id=envelope.request_id,
                 payload=None,
                 error=encode_error_payload(error),
@@ -217,11 +218,10 @@ class OciAppServer[RequestT: BaseModel, ResponseT: BaseModel]:
         )
 
 
-async def serve_application(
-    app: "Application[BaseModel, BaseModel]",
-    socket_path: Path | str = DEFAULT_SOCKET_PATH,
+async def _serve_application(
+    app: "Application[BaseModel, BaseModel]", socket_path: Path | str = SOCKET_PATH
 ) -> None:
     """Serves an application until cancelled."""
 
-    server = OciAppServer(app=app, socket_path=socket_path)
+    server = _OciAppServer(app=app, socket_path=socket_path)
     await server.serve_forever()

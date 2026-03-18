@@ -3,10 +3,9 @@ import contextlib
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from ociapp import (
-    PayloadCodecError,
-    ProtocolError,
-    RequestEnvelope,
+from ociapp.errors import PayloadCodecError, ProtocolError
+from ociapp.models import _RequestEnvelope
+from ociapp.protocol import (
     decode_error_payload,
     decode_payload,
     decode_response_envelope,
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
-class WorkerSession:
+class _WorkerSession:
     """Manages one persistent worker socket with multiplexed request futures."""
 
     def __init__(
@@ -86,7 +85,7 @@ class WorkerSession:
                     await write_frame(
                         self._writer,
                         encode_request_envelope(
-                            RequestEnvelope(
+                            _RequestEnvelope(
                                 request_id=request_id, payload=request_payload
                             )
                         ),
@@ -210,7 +209,7 @@ class WorkerSession:
                 future.set_exception(error)
 
 
-async def open_worker_session(socket_path: "Path") -> WorkerSession:
+async def _open_worker_session(socket_path: "Path") -> _WorkerSession:
     """Opens a persistent client session to a worker socket."""
 
     try:
@@ -220,15 +219,15 @@ async def open_worker_session(socket_path: "Path") -> WorkerSession:
             f"worker socket is not available: {socket_path}"
         ) from exc
 
-    return WorkerSession(socket_path=socket_path, reader=reader, writer=writer)
+    return _WorkerSession(socket_path=socket_path, reader=reader, writer=writer)
 
 
-async def execute_request(
+async def _execute_request(
     socket_path: "Path", request: dict[str, object]
 ) -> dict[str, object]:
     """Executes one OCIApp request against a worker socket."""
 
-    session = await open_worker_session(socket_path)
+    session = await _open_worker_session(socket_path)
     response_reader = asyncio.create_task(
         session.read_responses(), name=f"ociapp-runtime-reader:{socket_path.name}"
     )

@@ -1,30 +1,27 @@
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import ociapp_build
 from ociapp_build.build import (
-    build_image_tag,
-    build_project,
-    prepare_managed_context,
-    resolve_artifact_path,
+    _build_image_tag,
+    _build_project,
+    _prepare_managed_context,
+    _resolve_artifact_path,
 )
 from ociapp_build.config import (
-    BuildProject,
-    ManagedBuildConfig,
-    ProjectMetadata,
-    load_build_project,
+    _BuildProject,
+    _load_build_project,
+    _ManagedBuildConfig,
+    _ProjectMetadata,
 )
-from ociapp_build.runner import CommandResult, CommandRunner
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from ociapp_build.runner import _CommandResult, _CommandRunner
 
 
-class FakeRunner(CommandRunner):
+class FakeRunner(_CommandRunner):
     def __init__(self) -> None:
         self.commands: list[tuple[tuple[str, ...], Path | None]] = []
 
-    def run(self, args: "Sequence[str]", cwd: Path | None = None) -> CommandResult:
+    def run(self, args: Sequence[str], cwd: Path | None = None) -> _CommandResult:
         command = tuple(args)
         self.commands.append((command, cwd))
         if command[:3] == ("uv", "build", "--wheel"):
@@ -34,7 +31,7 @@ class FakeRunner(CommandRunner):
         if command[:3] == ("docker", "buildx", "build"):
             output_path = _extract_buildx_destination(command)
             output_path.write_text("archive")
-        return CommandResult(args=command, stdout="", stderr="", returncode=0)
+        return _CommandResult(args=command, stdout="", stderr="", returncode=0)
 
 
 EXPECTED_CUSTOM_COMMANDS = 1
@@ -47,17 +44,19 @@ def write_pyproject(project_root: Path, body: str) -> None:
 
 
 def test_prepare_managed_context_writes_containerfile(tmp_path: Path) -> None:
-    build_project_config = BuildProject(
+    build_project_config = _BuildProject(
         root=tmp_path,
-        metadata=ProjectMetadata(name="demo-app", version="1.2.3"),
-        config=ManagedBuildConfig(entrypoint="demo.main:app", system_packages=("git",)),
+        metadata=_ProjectMetadata(name="demo-app", version="1.2.3"),
+        config=_ManagedBuildConfig(
+            entrypoint="demo.main:app", system_packages=("git",)
+        ),
     )
     wheel_path = tmp_path / "demo_app-1.2.3-py3-none-any.whl"
     wheel_path.write_text("wheel")
     config = build_project_config.config
-    assert isinstance(config, ManagedBuildConfig)
+    assert isinstance(config, _ManagedBuildConfig)
 
-    containerfile_path = prepare_managed_context(
+    containerfile_path = _prepare_managed_context(
         build_project_config,
         config=config,
         wheel_path=wheel_path,
@@ -84,7 +83,7 @@ system-packages = ["git"]
     )
     runner = FakeRunner()
 
-    artifact_path = build_project(project_root, runner=runner)
+    artifact_path = _build_project(project_root, runner=runner)
 
     assert artifact_path == project_root / "demo-app-1.2.3.ociapp"
     assert artifact_path.exists()
@@ -112,7 +111,7 @@ containerfile = "Containerfile"
     (project_root / "Containerfile").write_text("FROM scratch\n")
     runner = FakeRunner()
 
-    artifact_path = build_project(project_root, runner=runner)
+    artifact_path = _build_project(project_root, runner=runner)
 
     assert artifact_path.exists()
     assert len(runner.commands) == EXPECTED_CUSTOM_COMMANDS
@@ -134,25 +133,23 @@ version = "1.2.3+abc"
 entrypoint = "demo.main:app"
 """,
     )
-    build_project_config = load_build_project(project_root)
+    build_project_config = _load_build_project(project_root)
 
-    assert build_image_tag(build_project_config) == "ociapp-build/demo-app:1.2.3-abc"
+    assert _build_image_tag(build_project_config) == "ociapp-build/demo-app:1.2.3-abc"
     assert (
-        resolve_artifact_path(build_project_config)
+        _resolve_artifact_path(build_project_config)
         == project_root / "demo_app-1.2.3+abc.ociapp"
     )
 
 
-def test_package_root_exports_supported_surface_only() -> None:
-    assert "build_project" in ociapp_build.__all__
+def test_package_root_exports_no_python_api() -> None:
+    assert ociapp_build.__all__ == []
     for name in (
+        "build_project",
         "build_image_tag",
-        "build_wheel",
-        "prepare_managed_context",
-        "render_managed_containerfile",
-        "resolve_artifact_path",
+        "load_build_project",
+        "ManagedBuildConfig",
     ):
-        assert name not in ociapp_build.__all__
         assert not hasattr(ociapp_build, name)
 
 

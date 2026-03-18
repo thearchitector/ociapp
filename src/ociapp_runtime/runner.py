@@ -6,11 +6,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-class CommandExecutionError(Exception):
+class _CommandExecutionError(Exception):
     """Raised when a runtime subprocess command fails."""
 
 
-class CommandResult(NamedTuple):
+class _CommandResult(NamedTuple):
     """Captures the result of a subprocess command."""
 
     args: tuple[str, ...]
@@ -19,7 +19,7 @@ class CommandResult(NamedTuple):
     returncode: int
 
 
-class CommandRunner:
+class _CommandRunner:
     """Executes subprocess commands for the runtime."""
 
     def run(
@@ -27,7 +27,7 @@ class CommandRunner:
         args: "Sequence[str]",
         cwd: "Path | None" = None,
         timeout: float | None = None,
-    ) -> CommandResult:
+    ) -> _CommandResult:
         """Runs a subprocess command and captures its output."""
 
         try:
@@ -41,18 +41,18 @@ class CommandRunner:
             )
         except subprocess.TimeoutExpired as exc:
             joined = " ".join(args)
-            raise CommandExecutionError(
+            raise _CommandExecutionError(
                 f"command timed out after {timeout}s: {joined}"
             ) from exc
 
-        result = CommandResult(
+        result = _CommandResult(
             args=tuple(args),
             stdout=completed.stdout,
             stderr=completed.stderr,
             returncode=completed.returncode,
         )
         if completed.returncode != 0:
-            raise CommandExecutionError(
+            raise _CommandExecutionError(
                 f"command failed with exit code {completed.returncode}: {' '.join(args)}\n"
                 f"{completed.stderr.strip()}"
             )
