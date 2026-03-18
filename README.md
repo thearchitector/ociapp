@@ -42,7 +42,7 @@ entrypoint = "echo_app.main:app"
 ```
 
 ```bash
-ociapp-build examples/echo-app --output-dir dist
+ociapp-build . --output-dir dist
 ```
 
 ### Execute an artifact
@@ -58,11 +58,12 @@ async with Runtime() as runtime:
     )
 ```
 
-See `examples/echo-app` and `examples/runtime_demo.py` for more detail.
+See `example/echo-app` and `example/runtime_demo.py` for more detail.
 
 ## How it works
 
-OCIApp encompases 3 packages:
+OCIApp encompases 3 packages. The `uv` workspace uses `ociapp-runtime` as the
+root package, while `ociapp` and `ociapp-build` remain under `packages/`.
 
 - `ociapp`: An SDK for defining arbitrary Python applications
 - `ociapp-build`: A standalone CLI that builds `.ociapp` OCI archives via Docker Buildx
@@ -75,7 +76,7 @@ OCIApp encompases 3 packages:
 - a warm pool of application containers, which it manages by spinning up new ones as needed and tearing down idle ones.
 - a UDS client for every active application container.
 
-### Request flow
+## Request Flow
 
 ```mermaid
 sequenceDiagram

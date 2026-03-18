@@ -1,31 +1,32 @@
 [project]
-name = "ociapp-workspace"
+name = "ociapp-runtime"
 version = "0.1.0"
-description = "Workspace for OCIApp packages"
+description = "Host-side OCIApp runtime"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "ociapp",
-    "ociapp-build",
-    "ociapp-runtime",
 ]
 
 [dependency-groups]
 dev = [
+    "ociapp-build",
     "mypy>=1.19.1",
-    "msgpack>=1.1.1",
-    "pydantic>=2.11.9",
     "prek>=0.3.3",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
 ]
 
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
 [tool.pytest.ini_options]
 testpaths = [
-    "packages/ociapp/tests/python",
-    "packages/ociapp-build/tests/python",
-    "packages/ociapp-runtime/tests/python",
+    "tests",
+    "packages/ociapp/tests",
+    "packages/ociapp-build/tests",
 ]
 addopts = "-ra -vv --import-mode=importlib --cov=ociapp --cov=ociapp_build --cov=ociapp_runtime --cov-branch --cov-report=term-missing"
 asyncio_default_fixture_loop_scope = "session"
@@ -39,24 +40,29 @@ branch = true
 exclude_also = ["if TYPE_CHECKING:"]
 
 [tool.mypy]
+python_version = "3.14"
 strict = true
-explicit_package_bases = true
 mypy_path = [
+    "src",
     "packages/ociapp/src",
     "packages/ociapp-build/src",
-    "packages/ociapp-runtime/src",
 ]
 
 [[tool.mypy.overrides]]
 module = ["msgpack"]
 ignore_missing_imports = true
 
+[tool.ruff]
+target-version = "py314"
+extend-include = ["*.md"]
+extend-exclude = ["plans/"]
+
 [tool.ruff.lint]
 extend-select = ["B", "I", "ASYNC", "TC", "SIM", "PL"]
 extend-ignore = ["UP037"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["TC", "F811", "PLR2004"]
+"**/tests/**" = ["TC", "F811", "PLR2004"]
 
 [tool.ruff.lint.flake8-type-checking]
 strict = true
@@ -72,9 +78,11 @@ preview = true
 split-on-trailing-comma = false
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = [
+    "packages/ociapp",
+    "packages/ociapp-build",
+]
 
 [tool.uv.sources]
 ociapp = { workspace = true }
 ociapp-build = { workspace = true }
-ociapp-runtime = { workspace = true }
