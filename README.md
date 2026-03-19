@@ -6,9 +6,10 @@ OCIApp is a framework for building and running dependency-sandboxed Python appli
 ## API Usage
 
 OCIApp has 3 phases:
-1. define an `Application`
-2. building it as an `.ociapp` artifact with `ociapp-build`
-3. and executing it with `Runtime.execute`.
+1. define an `Application` with some custom task / handler / etc.
+2. build it as an `.ociapp` artifact with `ociapp-build`
+3. distribute the `.ociapp` to some external party (or yourself) 
+4. execute it with `Runtime.execute`.
 
 ### Define an application
 
